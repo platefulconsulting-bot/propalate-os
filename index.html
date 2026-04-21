@@ -634,6 +634,8 @@
   /* ── OPS SCREEN HEADER ── */
   .ops-screen-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
   .ops-back-btn { width: 32px; height: 32px; background: var(--black3); border: 1px solid var(--black4); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+  .back-btn { width: 36px; height: 36px; background: var(--black3); border: 1px solid var(--black4); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; font-weight: 600; color: var(--white); flex-shrink: 0; user-select: none; }
+  .back-btn:hover { background: var(--black4); }
   .ops-screen-title { font-size: 18px; font-weight: 700; color: var(--white); }
 
   /* ── CLIENT LIST ── */
@@ -1621,12 +1623,6 @@
         <div class="ops-card-sub">Upload · AI gap analysis · Suggestions · Audit history</div>
         <div style="position:absolute;top:10px;right:10px;background:var(--gold);color:var(--black);font-size:8px;font-weight:900;padding:2px 7px;border-radius:20px;letter-spacing:1px">AI</div>
       </div>
-      <div class="ops-hub-card" onclick="window.open('nurture-dashboard.html','_blank')" style="grid-column:1/-1;border:1px solid rgba(201,168,76,0.3);position:relative">
-        <div class="ops-card-icon">💬</div>
-        <div class="ops-card-title">Lead Nurture Engine</div>
-        <div class="ops-card-sub">WhatsApp sequences · Lead pipeline · CSV upload</div>
-        <div style="position:absolute;top:10px;right:10px;background:var(--gold);color:var(--black);font-size:8px;font-weight:900;padding:2px 7px;border-radius:20px;letter-spacing:1px">NEW</div>
-      </div>
       <div class="ops-hub-card" onclick="switchTab('sop')" style="display:none;position:relative">
         <div class="ops-card-icon">📚</div>
         <div class="ops-card-title">SOP Playbook</div>
@@ -1898,6 +1894,17 @@
         <div style="font-size:12px;color:var(--white3)">Pipeline · Quotes · Revenue</div>
       </div>
       <div style="margin-left:auto" id="salesAddLeadBtn"></div>
+    </div>
+
+    <!-- NURTURE ENGINE -->
+    <div onclick="window.open('nurture-dashboard.html','_blank')" style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--black3);border:1px solid rgba(201,168,76,0.3);border-radius:12px;cursor:pointer;margin-bottom:14px;position:relative">
+      <div style="font-size:22px">💬</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:var(--white)">Lead Nurture Engine</div>
+        <div style="font-size:11px;color:var(--white3)">WhatsApp sequences · Lead pipeline · CSV / Excel upload</div>
+      </div>
+      <div style="position:absolute;top:8px;right:12px;background:var(--gold);color:var(--black);font-size:8px;font-weight:900;padding:2px 7px;border-radius:20px;letter-spacing:1px">NEW</div>
+      <div style="font-size:18px;color:var(--white3);margin-right:4px">›</div>
     </div>
 
     <!-- TAB BAR -->
