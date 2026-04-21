@@ -1,0 +1,15 @@
+{
+  "name": "Propalate OS",
+  "short_name": "PFC OS",
+  "description": "Plateful Consulting Internal Operations System",
+  "start_url": "/os/",
+  "scope": "/os/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#c9a84c",
+  "icons": [
+    {"src": "/os/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/os/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}

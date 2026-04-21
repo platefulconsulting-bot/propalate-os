@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PFC / PFT Pipeline Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: #0f0f0f; }
+  body { background: #0f0f0f; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #f5f5f5; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #171717; }
+  ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+  input, select, textarea, button { font-family: inherit; }
+  select option { background: #1e1e1e; color: #f5f5f5; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { useState, useMemo, Fragment } = React;
+const {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend
+} = Recharts;
+
+// ── THEME ──────────────────────────────────────────────────────────────────
+const T = {
+  bg: "#0f0f0f", surface: "#171717", surfaceHigh: "#1e1e1e",
+  surfaceBorder: "#2a2a2a", amber: "#f59e0b", amberDim: "#92400e",
+  green: "#10b981", red: "#ef4444", blue: "#3b82f6", purple: "#8b5cf6",
+  textPrimary: "#f5f5f5", textSecondary: "#a3a3a3", textMuted: "#525252",
+  pfc: "#f59e0b", pft: "#3b82f6",
+};
+
+// ── STAGES ─────────────────────────────────────────────────────────────────
+const STAGES = [
+  { id: "lead",        label: "Lead",          prob: 0.10, color: "#525252" },
+  { id: "discovery",  label: "Discovery Call", prob: 0.25, color: "#8b5cf6" },
+  { id: "proposal",   label: "Proposal Sent",  prob: 0.50, color: "#3b82f6" },
+  { id: "negotiation",label: "Negotiation",    prob: 0.75, color: "#f59e0b" },
+  { id: "won",        label: "Closed Won",     prob: 1.00, color: "#10b981" },
+  { id: "lost",       label: "Closed Lost",    prob: 0.00, color: "#ef4444" },
+];
+
+// ── SEED DEALS ─────────────────────────────────────────────────────────────
+const SEED = [
+  { id:1,  business:"PFC", client:"Zara Kitchen",       segment:"QSR",           value:85000,  stage:"negotiation", owner:"DD", lastContact:"2026-03-13", nextAction:"Send revised SOW",        notes:"3-outlet chain, ops audit + menu reengineering", created:"2026-02-10" },
+  { id:2,  business:"PFC", client:"The Biryani Project",segment:"Casual Dining",  value:120000, stage:"proposal",    owner:"DD", lastContact:"2026-03-10", nextAction:"Follow-up on proposal",   notes:"Expansion 2→5 outlets, SOP + training",          created:"2026-02-15" },
+  { id:3,  business:"PFC", client:"Chai Stop",           segment:"Beverage QSR",  value:45000,  stage:"discovery",   owner:"DD", lastContact:"2026-03-08", nextAction:"Send case study deck",    notes:"Franchise model interest, early stage",           created:"2026-03-01" },
+  { id:4,  business:"PFC", client:"Malabar Eats",        segment:"Cloud Kitchen", value:60000,  stage:"lead",        owner:"DD", lastContact:"2026-03-05", nextAction:"Book discovery call",     notes:"Referred by Zara Kitchen",                        created:"2026-03-05" },
+  { id:5,  business:"PFC", client:"Spice Garden Group",  segment:"Fine Dining",   value:200000, stage:"won",         owner:"DD", lastContact:"2026-03-01", nextAction:"Kick off project",        notes:"5-month retainer, ₹40k/mo",                       created:"2026-01-20" },
+  { id:6,  business:"PFC", client:"NoodleBox",           segment:"QSR",           value:55000,  stage:"lost",        owner:"DD", lastContact:"2026-02-20", nextAction:"—",                       notes:"Went with cheaper consultant",                    created:"2026-02-01" },
+  { id:7,  business:"PFT", client:"FoodStack SaaS",      segment:"Tech",          value:150000, stage:"negotiation", owner:"DD", lastContact:"2026-03-14", nextAction:"Finalise scope & pricing",notes:"GTM strategy + positioning for Series A",         created:"2026-02-05" },
+  { id:8,  business:"PFT", client:"Swiggy Partner Hub",  segment:"Platform",      value:300000, stage:"proposal",    owner:"DD", lastContact:"2026-03-09", nextAction:"Present to stakeholders", notes:"Large engagement, needs VP sign-off",             created:"2026-02-18" },
+  { id:9,  business:"PFT", client:"CloudMenu",           segment:"SaaS",          value:90000,  stage:"discovery",   owner:"DD", lastContact:"2026-03-11", nextAction:"Send capability deck",    notes:"Menu tech startup, GTM help",                     created:"2026-03-03" },
+  { id:10, business:"PFT", client:"ONDC Enabler",        segment:"Fintech",       value:180000, stage:"lead",        owner:"DD", lastContact:"2026-03-06", nextAction:"Initial outreach",        notes:"Warm intro from investor",                        created:"2026-03-06" },
+  { id:11, business:"PFT", client:"RestoOS",             segment:"SaaS",          value:120000, stage:"won",         owner:"DD", lastContact:"2026-02-28", nextAction:"Monthly review",          notes:"Retainer active, 3 months in",                    created:"2026-01-10" },
+  { id:12, business:"PFT", client:"TableTech",           segment:"Tech",          value:75000,  stage:"lost",        owner:"DD", lastContact:"2026-02-15", nextAction:"—",                       notes:"Budget frozen, revisit Q3",                       created:"2026-01-25" },
+];
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+const fmt     = n => n >= 100000 ? `₹${(n/100000).toFixed(1)}L` : `₹${(n/1000).toFixed(0)}K`;
+const fmtFull = n => `₹${n.toLocaleString("en-IN")}`;
+const daysSince = d => Math.floor((new Date() - new Date(d)) / 86400000);
+const stageCfg  = id => STAGES.find(s => s.id === id) || STAGES[0];
+let _id = 20;
+
+// ── MINI COMPONENTS ────────────────────────────────────────────────────────
+function Badge({ label, color }) {
+  return React.createElement("span", {
+    style: {
+      background: color + "22", color, border: `1px solid ${color}44`,
+      borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 600,
+      letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap"
+    }
+  }, label);
+}
+
+function StageTag({ stage }) {
+  const s = stageCfg(stage);
+  return React.createElement(Badge, { label: s.label, color: s.color });
+}
+
+function Divider() {
+  return React.createElement("div", { style: { height: 1, background: T.surfaceBorder, margin: "0" } });
+}
+
+// ── DEAL CARD ──────────────────────────────────────────────────────────────
+function DealCard({ deal, onEdit, onDelete }) {
+  const days  = daysSince(deal.lastContact);
+  const stale = days > 5 && !["won","lost"].includes(deal.stage);
+  return React.createElement("div", {
+    style: {
+      background: T.surface,
+      border: `1px solid ${stale ? T.amber+"55" : T.surfaceBorder}`,
+      borderRadius: 8, padding: "12px 14px", marginBottom: 8,
+      boxShadow: stale ? `0 0 0 1px ${T.amber}18` : "none"
+    }
+  },
+    React.createElement("div", { style: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 } },
+      React.createElement("div", { style: { fontSize:13, fontWeight:700, color:T.textPrimary, flex:1 } }, deal.client),
+      React.createElement("div", { style: { fontSize:13, fontWeight:700, color:T.amber, fontFamily:"'IBM Plex Mono',monospace", whiteSpace:"nowrap" } }, fmt(deal.value))
+    ),
+    React.createElement("div", { style: { display:"flex", gap:5, marginTop:7, flexWrap:"wrap" } },
+      React.createElement(Badge, { label: deal.segment, color: T.textMuted }),
+      stale && React.createElement(Badge, { label: `${days}d stale`, color: T.amber })
+    ),
+    React.createElement("div", { style: { marginTop:9, fontSize:12, color:T.textSecondary } },
+      React.createElement("span", { style: { color:T.textMuted } }, "Next: "),
+      deal.nextAction
+    ),
+    deal.notes && React.createElement("div", { style: { marginTop:5, fontSize:11, color:T.textMuted, fontStyle:"italic" } }, deal.notes),
+    React.createElement("div", { style: { display:"flex", gap:6, marginTop:10, justifyContent:"flex-end" } },
+      React.createElement("button", {
+        onClick: () => onEdit(deal),
+        style: { background:"none", border:`1px solid ${T.surfaceBorder}`, color:T.textSecondary, borderRadius:4, padding:"3px 10px", fontSize:11, cursor:"pointer" }
+      }, "Edit"),
+      React.createElement("button", {
+        onClick: () => { if(window.confirm("Delete this deal?")) onDelete(deal.id); },
+        style: { background:"none", border:`1px solid ${T.red}44`, color:T.red, borderRadius:4, padding:"3px 10px", fontSize:11, cursor:"pointer" }
+      }, "Del")
+    )
+  );
+}
+
+// ── KANBAN BOARD ───────────────────────────────────────────────────────────
+function KanbanBoard({ deals, onEdit, onDelete, onAdd }) {
+  const active = STAGES.filter(s => !["won","lost"].includes(s.id));
+  const closed = STAGES.filter(s => ["won","lost"].includes(s.id));
+  return React.createElement("div", null,
+    // Active stages
+    React.createElement("div", { style: { display:"flex", gap:10, overflowX:"auto", paddingBottom:12 } },
+      active.map(stage => {
+        const sd = deals.filter(d => d.stage === stage.id);
+        const sv = sd.reduce((a,d) => a+d.value, 0);
+        return React.createElement("div", { key:stage.id, style: { minWidth:220, maxWidth:255, flex:"0 0 235px" } },
+          // Column header
+          React.createElement("div", { style: {
+            borderRadius:"8px 8px 0 0", padding:"9px 14px",
+            background: stage.color+"18", borderBottom:`2px solid ${stage.color}`,
+            display:"flex", justifyContent:"space-between", alignItems:"center"
+          }},
+            React.createElement("span", { style: { fontSize:11, fontWeight:700, color:stage.color, letterSpacing:"0.05em", textTransform:"uppercase" } }, stage.label),
+            React.createElement("span", { style: { fontSize:11, color:T.textMuted, fontFamily:"'IBM Plex Mono',monospace" } }, fmt(sv))
+          ),
+          // Column body
+          React.createElement("div", { style: {
+            background:T.surfaceHigh, borderRadius:"0 0 8px 8px",
+            padding:"10px", minHeight:100,
+            border:`1px solid ${T.surfaceBorder}`, borderTop:"none"
+          }},
+            sd.map(d => React.createElement(DealCard, { key:d.id, deal:d, onEdit, onDelete })),
+            React.createElement("button", {
+              onClick: () => onAdd(stage.id),
+              style: {
+                width:"100%", background:"none", border:`1px dashed ${T.surfaceBorder}`,
+                color:T.textMuted, borderRadius:6, padding:"7px", fontSize:12,
+                cursor:"pointer", marginTop:4
+              }
+            }, "+ Add deal")
+          )
+        );
+      })
+    ),
+    // Closed stages
+    React.createElement("div", { style: { display:"flex", gap:12, marginTop:12 } },
+      closed.map(stage => {
+        const sd = deals.filter(d => d.stage === stage.id);
+        const sv = sd.reduce((a,d) => a+d.value, 0);
+        return React.createElement("div", { key:stage.id, style: { flex:1 } },
+          React.createElement("div", { style: {
+            borderRadius:"8px 8px 0 0", padding:"9px 14px",
+            background:stage.color+"18", borderBottom:`2px solid ${stage.color}`,
+            display:"flex", justifyContent:"space-between"
+          }},
+            React.createElement("span", { style: { fontSize:11, fontWeight:700, color:stage.color, letterSpacing:"0.05em", textTransform:"uppercase" } }, stage.label),
+            React.createElement("span", { style: { fontSize:11, color:T.textMuted, fontFamily:"'IBM Plex Mono',monospace" } }, `${fmt(sv)} · ${sd.length} deals`)
+          ),
+          React.createElement("div", { style: {
+            background:T.surfaceHigh, borderRadius:"0 0 8px 8px",
+            padding:"10px", border:`1px solid ${T.surfaceBorder}`, borderTop:"none"
+          }},
+            sd.map(d => React.createElement(DealCard, { key:d.id, deal:d, onEdit, onDelete }))
+          )
+        );
+      })
+    )
+  );
+}
+
+// ── METRICS VIEW ───────────────────────────────────────────────────────────
+function MetricsView({ deals }) {
+  const bizList = ["PFC","PFT"];
+  const winRate = b => {
+    const cl = deals.filter(d => d.business===b && ["won","lost"].includes(d.stage));
+    const w  = cl.filter(d => d.stage==="won");
+    return cl.length ? Math.round(w.length/cl.length*100) : 0;
+  };
+  const weighted = b => deals.filter(d=>d.business===b)
+    .reduce((s,d) => s + d.value*(stageCfg(d.stage).prob||0), 0);
+
+  const stageData = STAGES.map(s => ({
+    stage: s.label,
+    PFC: deals.filter(d=>d.business==="PFC"&&d.stage===s.id).reduce((a,d)=>a+d.value,0),
+    PFT: deals.filter(d=>d.business==="PFT"&&d.stage===s.id).reduce((a,d)=>a+d.value,0),
+  }));
+
+  const PIE_COLORS = [T.purple, T.blue, T.amber, T.green, "#f43f5e", "#14b8a6"];
+  const segData = b => {
+    const m = {};
+    deals.filter(d=>d.business===b).forEach(d=>{ m[d.segment]=(m[d.segment]||0)+d.value; });
+    return Object.entries(m).map(([name,value])=>({name,value}));
+  };
+
+  const ttStyle = { background:T.surfaceHigh, border:`1px solid ${T.surfaceBorder}`, borderRadius:6, color:T.textPrimary, fontSize:12 };
+
+  return React.createElement("div", { style: { display:"flex", flexDirection:"column", gap:24 } },
+    // KPI cards per business
+    React.createElement("div", { style: { display:"flex", gap:12, flexWrap:"wrap" } },
+      bizList.map(b => React.createElement("div", { key:b, style: {
+        flex:1, minWidth:280, background:T.surface,
+        border:`1px solid ${T.surfaceBorder}`, borderRadius:10, padding:20,
+        borderTop:`2px solid ${b==="PFC"?T.pfc:T.pft}`
+      }},
+        React.createElement("div", { style: { display:"flex", alignItems:"center", gap:8, marginBottom:16 } },
+          React.createElement("div", { style: { width:8, height:8, borderRadius:"50%", background:b==="PFC"?T.pfc:T.pft } }),
+          React.createElement("span", { style: { fontWeight:800, fontSize:15, color:b==="PFC"?T.pfc:T.pft } }, b)
+        ),
+        React.createElement("div", { style: { display:"flex", gap:10, flexWrap:"wrap" } },
+          [
+            { label:"Total Pipeline", val: fmt(deals.filter(d=>d.business===b).reduce((s,d)=>s+d.value,0)) },
+            { label:"Weighted Pipe",  val: fmt(weighted(b)), sub:"Prob-adjusted" },
+            { label:"Win Rate",       val: `${winRate(b)}%` },
+          ].map(({label,val,sub}) => React.createElement("div", { key:label, style: {
+            background:T.surfaceHigh, border:`1px solid ${T.surfaceBorder}`,
+            borderRadius:8, padding:"14px 16px", flex:1, minWidth:120
+          }},
+            React.createElement("div", { style: { fontSize:10, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6 } }, label),
+            React.createElement("div", { style: { fontSize:22, fontWeight:700, color:T.textPrimary, fontFamily:"'IBM Plex Mono',monospace" } }, val),
+            sub && React.createElement("div", { style: { fontSize:11, color:T.textMuted, marginTop:3 } }, sub)
+          ))
+        )
+      ))
+    ),
+    // Stage bar chart
+    React.createElement("div", { style: { background:T.surface, border:`1px solid ${T.surfaceBorder}`, borderRadius:10, padding:24 } },
+      React.createElement("div", { style: { fontSize:12, fontWeight:700, color:T.textSecondary, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:20 } }, "Pipeline Value by Stage"),
+      React.createElement(ResponsiveContainer, { width:"100%", height:240 },
+        React.createElement(BarChart, { data:stageData, margin:{top:0,right:10,bottom:0,left:0} },
+          React.createElement(CartesianGrid, { strokeDasharray:"3 3", stroke:T.surfaceBorder }),
+          React.createElement(XAxis, { dataKey:"stage", tick:{fill:T.textMuted,fontSize:10}, axisLine:false, tickLine:false }),
+          React.createElement(YAxis, { tickFormatter:v=>fmt(v), tick:{fill:T.textMuted,fontSize:10}, axisLine:false, tickLine:false, width:58 }),
+          React.createElement(Tooltip, { formatter:v=>fmtFull(v), contentStyle:ttStyle }),
+          React.createElement(Bar, { dataKey:"PFC", fill:T.pfc, radius:[3,3,0,0] }),
+          React.createElement(Bar, { dataKey:"PFT", fill:T.pft, radius:[3,3,0,0] }),
+          React.createElement(Legend, { wrapperStyle:{fontSize:12, color:T.textSecondary} })
+        )
+      )
+    ),
+    // Segment pies
+    React.createElement("div", { style: { display:"flex", gap:16 } },
+      bizList.map(b => React.createElement("div", { key:b, style: {
+        flex:1, background:T.surface, border:`1px solid ${T.surfaceBorder}`, borderRadius:10, padding:24
+      }},
+        React.createElement("div", { style: { fontSize:12, fontWeight:700, color:T.textSecondary, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:16 } }, `${b} — Segment Mix`),
+        React.createElement(ResponsiveContainer, { width:"100%", height:200 },
+          React.createElement(PieChart, null,
+            React.createElement(Pie, {
+              data:segData(b), dataKey:"value", nameKey:"name",
+              cx:"50%", cy:"50%", outerRadius:70,
+              label:({name,percent})=>`${name} ${(percent*100).toFixed(0)}%`,
+              labelLine:false, style:{fontSize:10,fill:T.textSecondary}
+            },
+              segData(b).map((_,i) => React.createElement(Cell, { key:i, fill:PIE_COLORS[i%PIE_COLORS.length] }))
+            ),
+            React.createElement(Tooltip, { formatter:v=>fmtFull(v), contentStyle:ttStyle })
+          )
+        )
+      ))
+    )
+  );
+}
+
+// ── COMPARE VIEW ───────────────────────────────────────────────────────────
+function CompareView({ deals }) {
+  const pfcTotal = deals.filter(d=>d.business==="PFC").reduce((s,d)=>s+d.value,0);
+  const pftTotal = deals.filter(d=>d.business==="PFT").reduce((s,d)=>s+d.value,0);
+  const total = pfcTotal + pftTotal;
+
+  const metrics = [
+    { label:"Total Deals",     fn:b=>deals.filter(d=>d.business===b).length },
+    { label:"Active Pipeline", fn:b=>fmt(deals.filter(d=>d.business===b&&!["won","lost"].includes(d.stage)).reduce((s,d)=>s+d.value,0)) },
+    { label:"Avg Deal Size",   fn:b=>{ const bd=deals.filter(d=>d.business===b); return bd.length?fmt(bd.reduce((s,d)=>s+d.value,0)/bd.length):"—"; } },
+    { label:"Deals Won",       fn:b=>deals.filter(d=>d.business===b&&d.stage==="won").length },
+    { label:"Deals Lost",      fn:b=>deals.filter(d=>d.business===b&&d.stage==="lost").length },
+    { label:"Stale (>5d)",     fn:b=>deals.filter(d=>d.business===b&&!["won","lost"].includes(d.stage)&&daysSince(d.lastContact)>5).length },
+  ];
+
+  const card = (b, clr, tot) => React.createElement("div", { style: {
+    background:T.surface, border:`2px solid ${clr}`, borderRadius:12, padding:24, flex:1
+  }},
+    React.createElement("div", { style: { fontSize:24, fontWeight:800, color:clr, marginBottom:4 } }, b),
+    React.createElement("div", { style: { fontSize:30, fontWeight:700, color:T.textPrimary, fontFamily:"'IBM Plex Mono',monospace" } }, fmt(tot)),
+    React.createElement("div", { style: { fontSize:11, color:T.textMuted, marginBottom:14 } }, "Total pipeline"),
+    React.createElement("div", { style: { height:6, background:T.surfaceBorder, borderRadius:3, overflow:"hidden", marginBottom:16 } },
+      React.createElement("div", { style: { height:"100%", width:`${total?(tot/total)*100:0}%`, background:clr, borderRadius:3 } })
+    ),
+    metrics.map(m => React.createElement("div", { key:m.label, style: {
+      display:"flex", justifyContent:"space-between", padding:"8px 0",
+      borderBottom:`1px solid ${T.surfaceBorder}`
+    }},
+      React.createElement("span", { style: { fontSize:12, color:T.textSecondary } }, m.label),
+      React.createElement("span", { style: { fontSize:13, fontWeight:700, color:T.textPrimary, fontFamily:"'IBM Plex Mono',monospace" } }, m.fn(b))
+    ))
+  );
+
+  return React.createElement("div", { style: { display:"flex", flexDirection:"column", gap:20 } },
+    React.createElement("div", { style: { display:"flex", gap:16, alignItems:"start" } },
+      card("PFC", T.pfc, pfcTotal),
+      React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"center", padding:"30px 8px" } },
+        React.createElement("span", { style: { fontSize:18, fontWeight:900, color:T.textMuted } }, "VS")
+      ),
+      card("PFT", T.pft, pftTotal)
+    ),
+    React.createElement("div", { style: { background:T.surface, border:`1px solid ${T.surfaceBorder}`, borderRadius:10, padding:20 } },
+      React.createElement("div", { style: { fontSize:11, color:T.textMuted, marginBottom:12, textTransform:"uppercase", letterSpacing:"0.08em" } }, "Combined Pipeline Mix"),
+      React.createElement("div", { style: { display:"flex", height:28, borderRadius:4, overflow:"hidden", gap:2 } },
+        React.createElement("div", { style: { flex:pfcTotal, background:T.pfc, display:"flex", alignItems:"center", justifyContent:"center" } },
+          React.createElement("span", { style: { fontSize:11, fontWeight:700, color:"#000" } }, `PFC ${total?Math.round(pfcTotal/total*100):0}%`)
+        ),
+        React.createElement("div", { style: { flex:pftTotal, background:T.pft, display:"flex", alignItems:"center", justifyContent:"center" } },
+          React.createElement("span", { style: { fontSize:11, fontWeight:700, color:"#fff" } }, `PFT ${total?Math.round(pftTotal/total*100):0}%`)
+        )
+      ),
+      React.createElement("div", { style: { display:"flex", gap:24, marginTop:14 } },
+        React.createElement("div", { style: { fontSize:12, color:T.textSecondary } }, React.createElement("span", { style: { color:T.pfc } }, "● "), "PFC: ", fmtFull(pfcTotal)),
+        React.createElement("div", { style: { fontSize:12, color:T.textSecondary } }, React.createElement("span", { style: { color:T.pft } }, "● "), "PFT: ", fmtFull(pftTotal)),
+        React.createElement("div", { style: { fontSize:12, color:T.textSecondary, marginLeft:"auto" } }, "Total: ", fmtFull(total))
+      )
+    )
+  );
+}
+
+// ── FOLLOW-UP VIEW ─────────────────────────────────────────────────────────
+function FollowUpView({ deals }) {
+  const stale  = deals.filter(d=>!["won","lost"].includes(d.stage)&&daysSince(d.lastContact)>=5)
+                      .sort((a,b)=>daysSince(b.lastContact)-daysSince(a.lastContact));
+  const urgent = deals.filter(d=>!["won","lost"].includes(d.stage)&&["negotiation","proposal"].includes(d.stage));
+  const open   = deals.filter(d=>!["won","lost"].includes(d.stage));
+
+  const row = (d) => React.createElement("div", { key:d.id, style: {
+    display:"flex", alignItems:"center", gap:12, padding:"11px 0",
+    borderBottom:`1px solid ${T.surfaceBorder}`, flexWrap:"wrap"
+  }},
+    React.createElement("div", { style: { flex:1, minWidth:120 } },
+      React.createElement("div", { style: { fontSize:13, fontWeight:600, color:T.textPrimary } }, d.client),
+      React.createElement("div", { style: { fontSize:11, color:T.textMuted, marginTop:2 } }, `${d.business} · ${d.segment}`)
+    ),
+    React.createElement(StageTag, { stage:d.stage }),
+    React.createElement("div", { style: { fontSize:13, fontWeight:700, color:T.amber, fontFamily:"'IBM Plex Mono',monospace", minWidth:65 } }, fmt(d.value)),
+    React.createElement("div", { style: { fontSize:12, color:T.textSecondary, flex:1, minWidth:120 } }, d.nextAction)
+  );
+
+  const panel = (title, dotColor, sub, items, emptyMsg, extra) =>
+    React.createElement("div", { style: { background:T.surface, border:`1px solid ${T.surfaceBorder}`, borderRadius:10, padding:20 } },
+      React.createElement("div", { style: { display:"flex", alignItems:"center", gap:8, marginBottom:14 } },
+        React.createElement("div", { style: { width:8, height:8, borderRadius:"50%", background:dotColor, boxShadow:`0 0 6px ${dotColor}` } }),
+        React.createElement("span", { style: { fontSize:13, fontWeight:700, color:dotColor, textTransform:"uppercase", letterSpacing:"0.06em" } }, title),
+        React.createElement("span", { style: { marginLeft:"auto", fontSize:11, color:T.textMuted } }, sub)
+      ),
+      items.length===0
+        ? React.createElement("div", { style: { fontSize:13, color:T.textMuted, padding:"10px 0" } }, emptyMsg)
+        : items.map(d => extra ? extra(d) : row(d))
+    );
+
+  return React.createElement("div", { style: { display:"flex", flexDirection:"column", gap:20 } },
+    panel("Priority Deals", T.amber, "Negotiation & Proposal", urgent, "No priority deals right now."),
+    panel("Stale Deals", T.red, "No contact in 5+ days", stale, "All deals are fresh.", d =>
+      React.createElement("div", { key:d.id, style: { display:"flex", alignItems:"center", gap:12, padding:"11px 0", borderBottom:`1px solid ${T.surfaceBorder}`, flexWrap:"wrap" } },
+        React.createElement("div", { style: { flex:1, minWidth:120 } },
+          React.createElement("div", { style: { fontSize:13, fontWeight:600, color:T.textPrimary } }, d.client),
+          React.createElement("div", { style: { fontSize:11, color:T.textMuted, marginTop:2 } }, `${d.business} · ${d.segment}`)
+        ),
+        React.createElement(StageTag, { stage:d.stage }),
+        React.createElement(Badge, { label:`${daysSince(d.lastContact)}d ago`, color:T.red }),
+        React.createElement("div", { style: { fontSize:12, color:T.textSecondary, flex:1, minWidth:120 } }, d.nextAction)
+      )
+    ),
+    React.createElement("div", { style: { background:T.surface, border:`1px solid ${T.surfaceBorder}`, borderRadius:10, padding:20 } },
+      React.createElement("div", { style: { fontSize:12, fontWeight:700, color:T.textSecondary, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:14 } }, "All Open Actions"),
+      open.map(d => React.createElement("div", { key:d.id, style: {
+        display:"flex", alignItems:"center", gap:12, padding:"9px 0",
+        borderBottom:`1px solid ${T.surfaceBorder}`, flexWrap:"wrap"
+      }},
+        React.createElement("div", { style: { width:6, height:6, borderRadius:"50%", background:d.business==="PFC"?T.pfc:T.pft, flexShrink:0 } }),
+        React.createElement("div", { style: { fontSize:13, color:T.textPrimary, minWidth:140 } }, d.client),
+        React.createElement(StageTag, { stage:d.stage }),
+        React.createElement("div", { style: { flex:1, fontSize:12, color:T.textSecondary } }, d.nextAction),
+        React.createElement("div", { style: { fontSize:11, color:daysSince(d.lastContact)>5?T.red:T.textMuted } }, `${daysSince(d.lastContact)}d`)
+      ))
+    )
+  );
+}
+
+// ── DEAL MODAL ─────────────────────────────────────────────────────────────
+function DealModal({ deal, onSave, onClose }) {
+  const blank = { business:"PFC", client:"", segment:"", value:"", stage:"lead", owner:"DD", lastContact:new Date().toISOString().split("T")[0], nextAction:"", notes:"" };
+  const [form, setForm] = useState(Object.assign({}, blank, deal));
+  const f = (k,v) => setForm(p => Object.assign({}, p, {[k]:v}));
+
+  const fields = [
+    { label:"Business",       key:"business",    type:"select", opts:["PFC","PFT"] },
+    { label:"Client Name",    key:"client",      type:"text" },
+    { label:"Segment",        key:"segment",     type:"text", ph:"e.g. QSR, SaaS, Cloud Kitchen" },
+    { label:"Deal Value (₹)", key:"value",       type:"number" },
+    { label:"Stage",          key:"stage",       type:"select", opts:STAGES.map(s=>s.id), optLabels:STAGES.map(s=>s.label) },
+    { label:"Owner",          key:"owner",       type:"text" },
+    { label:"Last Contact",   key:"lastContact", type:"date" },
+    { label:"Next Action",    key:"nextAction",  type:"text" },
+    { label:"Notes",          key:"notes",       type:"textarea" },
+  ];
+
+  const inputStyle = { width:"100%", background:T.surface, border:`1px solid ${T.surfaceBorder}`, borderRadius:6, padding:"8px 10px", color:T.textPrimary, fontSize:13, outline:"none", boxSizing:"border-box" };
+
+  return React.createElement("div", { style: { position:"fixed", inset:0, background:"rgba(0,0,0,0.82)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 } },
+    React.createElement("div", { style: { background:T.surfaceHigh, border:`1px solid ${T.surfaceBorder}`, borderRadius:14, padding:28, width:"100%", maxWidth:500, maxHeight:"90vh", overflowY:"auto" } },
+      React.createElement("div", { style: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22 } },
+        React.createElement("span", { style: { fontSize:16, fontWeight:700, color:T.textPrimary } }, deal && deal.id ? "Edit Deal" : "New Deal"),
+        React.createElement("button", { onClick:onClose, style: { background:"none", border:"none", color:T.textMuted, fontSize:22, cursor:"pointer", lineHeight:1 } }, "×")
+      ),
+      fields.map(({ label, key, type, opts, optLabels, ph }) =>
+        React.createElement("div", { key, style: { marginBottom:13 } },
+          React.createElement("label", { style: { display:"block", fontSize:10, color:T.textMuted, marginBottom:5, textTransform:"uppercase", letterSpacing:"0.06em" } }, label),
+          type==="select"
+            ? React.createElement("select", { value:form[key], onChange:e=>f(key,e.target.value), style:inputStyle },
+                opts.map((o,i) => React.createElement("option", { key:o, value:o }, optLabels ? optLabels[i] : o))
+              )
+            : type==="textarea"
+            ? React.createElement("textarea", { value:form[key], onChange:e=>f(key,e.target.value), rows:3, placeholder:ph||"", style:Object.assign({},inputStyle,{resize:"vertical"}) })
+            : React.createElement("input", { type, value:form[key], onChange:e=>f(key,e.target.value), placeholder:ph||"", style:inputStyle })
+        )
+      ),
+      React.createElement("div", { style: { display:"flex", gap:10, marginTop:22 } },
+        React.createElement("button", { onClick:onClose, style: { flex:1, background:"none", border:`1px solid ${T.surfaceBorder}`, color:T.textSecondary, borderRadius:8, padding:"10px", fontSize:13, cursor:"pointer" } }, "Cancel"),
+        React.createElement("button", {
+          onClick: () => onSave(Object.assign({}, form, { value: Number(form.value)||0 })),
+          style: { flex:2, background:T.amber, color:"#000", border:"none", borderRadius:8, padding:"10px", fontSize:13, fontWeight:700, cursor:"pointer" }
+        }, "Save Deal")
+      )
+    )
+  );
+}
+
+// ── MAIN APP ───────────────────────────────────────────────────────────────
+function App() {
+  const [deals, setDeals]     = useState(SEED);
+  const [tab, setTab]         = useState("pipeline");
+  const [biz, setBiz]         = useState("ALL");
+  const [modal, setModal]     = useState(null);
+
+  const filtered = useMemo(() => biz==="ALL" ? deals : deals.filter(d=>d.business===biz), [deals, biz]);
+
+  const handleSave = form => {
+    if (form.id) {
+      setDeals(prev => prev.map(d => d.id===form.id ? form : d));
+    } else {
+      setDeals(prev => [...prev, Object.assign({}, form, { id:++_id, created:new Date().toISOString().split("T")[0] })]);
+    }
+    setModal(null);
+  };
+
+  const handleDelete = id => setDeals(prev => prev.filter(d=>d.id!==id));
+  const handleAdd    = stage => setModal({ stage });
+
+  const totalPipe   = deals.filter(d=>!["won","lost"].includes(d.stage)).reduce((s,d)=>s+d.value,0);
+  const wonRev      = deals.filter(d=>d.stage==="won").reduce((s,d)=>s+d.value,0);
+  const openCount   = deals.filter(d=>!["won","lost"].includes(d.stage)).length;
+  const staleCount  = deals.filter(d=>!["won","lost"].includes(d.stage)&&daysSince(d.lastContact)>5).length;
+  const pfcPipe     = deals.filter(d=>d.business==="PFC"&&!["won","lost"].includes(d.stage)).reduce((s,d)=>s+d.value,0);
+  const pftPipe     = deals.filter(d=>d.business==="PFT"&&!["won","lost"].includes(d.stage)).reduce((s,d)=>s+d.value,0);
+
+  const TABS = [
+    { id:"pipeline", label:"Pipeline Board" },
+    { id:"metrics",  label:"Analytics" },
+    { id:"compare",  label:"PFC vs PFT" },
+    { id:"followup", label:`Follow-up${staleCount>0?` (${staleCount})`:""}` },
+  ];
+
+  const btnBase = { border:"none", borderRadius:6, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer" };
+
+  return React.createElement("div", { style: { background:T.bg, minHeight:"100vh", color:T.textPrimary } },
+
+    // ── Header
+    React.createElement("div", { style: { background:T.surface, borderBottom:`1px solid ${T.surfaceBorder}`, padding:"0 24px" } },
+      React.createElement("div", { style: { display:"flex", alignItems:"center", justifyContent:"space-between", height:58, maxWidth:1400, margin:"0 auto" } },
+        React.createElement("div", { style: { fontWeight:800, fontSize:17, letterSpacing:"-0.02em" } },
+          React.createElement("span", { style: { color:T.pfc } }, "PFC"),
+          React.createElement("span", { style: { color:T.textMuted, margin:"0 6px", fontWeight:400 } }, "/"),
+          React.createElement("span", { style: { color:T.pft } }, "PFT"),
+          React.createElement("span", { style: { color:T.textMuted, fontSize:12, fontWeight:400, marginLeft:8 } }, "Pipeline Dashboard")
+        ),
+        React.createElement("div", { style: { display:"flex", gap:7, alignItems:"center" } },
+          ["ALL","PFC","PFT"].map(b => React.createElement("button", { key:b, onClick:()=>setBiz(b), style: Object.assign({}, btnBase, {
+            background: biz===b ? (b==="PFC"?T.pfc : b==="PFT"?T.pft : T.amber) : "none",
+            border: `1px solid ${biz===b?"transparent":T.surfaceBorder}`,
+            color: biz===b ? (b==="ALL"?"#000" : b==="PFC"?"#000" : "#fff") : T.textSecondary
+          }) }, b)),
+          React.createElement("div", { style: { width:1, height:20, background:T.surfaceBorder, margin:"0 3px" } }),
+          React.createElement("button", { onClick:()=>setModal({ stage:"lead" }), style: Object.assign({}, btnBase, { background:T.amber, color:"#000" }) }, "+ New Deal")
+        )
+      )
+    ),
+
+    // ── Summary strip
+    React.createElement("div", { style: { background:T.surfaceHigh, borderBottom:`1px solid ${T.surfaceBorder}` } },
+      React.createElement("div", { style: { maxWidth:1400, margin:"0 auto", padding:"12px 24px", display:"flex", gap:28, flexWrap:"wrap" } },
+        [
+          { label:"Active Pipeline", val:fmt(totalPipe),  color:T.amber },
+          { label:"Won Revenue",     val:fmt(wonRev),     color:T.green },
+          { label:"Open Deals",      val:openCount,       color:T.blue },
+          { label:"Stale Deals",     val:staleCount,      color:staleCount>0?T.red:T.textMuted },
+          { label:"PFC Pipeline",    val:fmt(pfcPipe),    color:T.pfc },
+          { label:"PFT Pipeline",    val:fmt(pftPipe),    color:T.pft },
+        ].map(({ label, val, color }) => React.createElement("div", { key:label },
+          React.createElement("div", { style: { fontSize:10, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em" } }, label),
+          React.createElement("div", { style: { fontSize:20, fontWeight:700, color, fontFamily:"'IBM Plex Mono',monospace", marginTop:2 } }, val)
+        ))
+      )
+    ),
+
+    // ── Tabs
+    React.createElement("div", { style: { background:T.surface, borderBottom:`1px solid ${T.surfaceBorder}` } },
+      React.createElement("div", { style: { maxWidth:1400, margin:"0 auto", padding:"0 24px", display:"flex", gap:2 } },
+        TABS.map(t => React.createElement("button", { key:t.id, onClick:()=>setTab(t.id), style: {
+          background:"none", border:"none",
+          borderBottom: tab===t.id ? `2px solid ${T.amber}` : "2px solid transparent",
+          color: tab===t.id ? T.amber : T.textSecondary,
+          padding:"13px 14px", fontSize:13,
+          fontWeight: tab===t.id ? 700 : 400,
+          cursor:"pointer", marginBottom:-1
+        } }, t.label))
+      )
+    ),
+
+    // ── Content
+    React.createElement("div", { style: { maxWidth:1400, margin:"0 auto", padding:24 } },
+      tab==="pipeline" && React.createElement(KanbanBoard, { deals:filtered, onEdit:setModal, onDelete:handleDelete, onAdd:handleAdd }),
+      tab==="metrics"  && React.createElement(MetricsView,  { deals:filtered }),
+      tab==="compare"  && React.createElement(CompareView,  { deals }),
+      tab==="followup" && React.createElement(FollowUpView, { deals:filtered })
+    ),
+
+    // ── Footer
+    React.createElement("div", { style: { borderTop:`1px solid ${T.surfaceBorder}`, padding:"14px 24px", textAlign:"center" } },
+      React.createElement("span", { style: { fontSize:11, color:T.textMuted } },
+        `Plateful Consulting · Pipeline Dashboard · ${new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`
+      )
+    ),
+
+    // ── Modal
+    modal && React.createElement(DealModal, { deal:modal, onSave:handleSave, onClose:()=>setModal(null) })
+  );
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(App));
+</script>
+</body>
+</html>

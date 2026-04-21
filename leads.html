@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lead Qualifier — PFC OS</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root {
+  --gold: #C9A84C; --gold-light: #F0D080; --gold-dim: #8B6914;
+  --gold-faint: rgba(201,168,76,0.07); --gold-faint2: rgba(201,168,76,0.14);
+  --bg: #0A0A0A; --bg2: #0E0D09; --surface: #141209; --surface2: #1A1810;
+  --border: rgba(201,168,76,0.15); --border2: rgba(201,168,76,0.28);
+  --text: #F0EAD6; --text-dim: #8A8060; --text-faint: #4A4530;
+  --red: #E05555; --red-bg: rgba(224,85,85,0.1);
+  --amber: #D4920A; --amber-bg: rgba(212,146,10,0.1);
+  --green: #4CAF7A; --green-bg: rgba(76,175,122,0.1);
+  --blue: #5B9BD5; --blue-bg: rgba(91,155,213,0.1);
+  --r: 9px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(201,168,76,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(201,168,76,0.025) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;z-index:0}
+
+/* HEADER */
+.hdr{position:sticky;top:0;z-index:200;background:rgba(10,10,8,0.96);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:0 24px;height:54px;display:flex;align-items:center;justify-content:space-between}
+.hdr-l{display:flex;align-items:center;gap:14px}
+.hdr-logo{width:30px;height:30px;background:var(--gold);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;color:var(--bg);letter-spacing:.3px}
+.hdr-info h1{font-size:13px;font-weight:700;letter-spacing:.6px;color:var(--text)}
+.hdr-info p{font-size:11px;color:var(--text-dim)}
+.hdr-r{display:flex;align-items:center;gap:10px}
+.badge{background:var(--gold-faint2);border:1px solid var(--border2);color:var(--gold);font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;letter-spacing:.4px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;letter-spacing:.3px;transition:all .15s}
+.btn-gold{background:var(--gold);color:var(--bg)}
+.btn-gold:hover{background:var(--gold-light)}
+.btn-outline{background:transparent;border:1px solid var(--border2);color:var(--gold)}
+.btn-outline:hover{background:var(--gold-faint2)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text-dim)}
+.btn-ghost:hover{border-color:var(--border2);color:var(--text)}
+a.back{display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:12px;text-decoration:none;padding:6px 10px;border-radius:6px;border:1px solid var(--border);transition:all .15s}
+a.back:hover{color:var(--gold);border-color:var(--border2)}
+
+/* LAYOUT */
+.wrap{position:relative;z-index:1;padding:24px;max-width:1400px;margin:0 auto}
+
+/* STAT STRIP */
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--gold);opacity:.4}
+.stat.hot::before{background:var(--red);opacity:.8}
+.stat.warm::before{background:var(--amber);opacity:.8}
+.stat.cold::before{background:var(--blue);opacity:.8}
+.stat.won::before{background:var(--green);opacity:.8}
+.stat-val{font-size:26px;font-weight:700;color:var(--gold);letter-spacing:-.5px;line-height:1}
+.stat.hot .stat-val{color:var(--red)}
+.stat.warm .stat-val{color:var(--amber)}
+.stat.cold .stat-val{color:var(--blue)}
+.stat.won .stat-val{color:var(--green)}
+.stat-label{font-size:11px;color:var(--text-dim);margin-top:4px;font-weight:500;letter-spacing:.3px}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.search-wrap{position:relative;flex:1;min-width:200px}
+.search-wrap input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 12px 8px 34px;color:var(--text);font-family:inherit;font-size:13px;outline:none;transition:border .15s}
+.search-wrap input:focus{border-color:var(--border2)}
+.search-wrap::before{content:'⌕';position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-faint);font-size:16px;pointer-events:none}
+select{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text-dim);font-family:inherit;font-size:12px;outline:none;cursor:pointer;appearance:none;padding-right:24px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238A8060'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;transition:border .15s}
+select:focus,select:hover{border-color:var(--border2)}
+
+/* TABLE */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.tbl{width:100%;border-collapse:collapse}
+.tbl thead tr{background:var(--surface2);border-bottom:1px solid var(--border)}
+.tbl th{padding:11px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text-dim);text-transform:uppercase;white-space:nowrap;cursor:pointer;user-select:none}
+.tbl th:hover{color:var(--gold)}
+.tbl th.sorted{color:var(--gold)}
+.tbl tbody tr{border-bottom:1px solid rgba(201,168,76,0.06);transition:background .1s;cursor:pointer}
+.tbl tbody tr:hover{background:var(--gold-faint)}
+.tbl tbody tr:last-child{border-bottom:none}
+.tbl td{padding:12px 14px;font-size:13px;vertical-align:middle}
+.tbl td .sub{font-size:11px;color:var(--text-dim);margin-top:1px}
+
+/* BANDS */
+.band{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.3px;white-space:nowrap}
+.band-hot{background:var(--red-bg);color:var(--red);border:1px solid rgba(224,85,85,0.25)}
+.band-warm{background:var(--amber-bg);color:var(--amber);border:1px solid rgba(212,146,10,0.25)}
+.band-cold{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(91,155,213,0.25)}
+.band-disq{background:rgba(100,100,100,0.1);color:#666;border:1px solid rgba(100,100,100,0.2)}
+
+/* STATUS */
+.status{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px;white-space:nowrap}
+.s-new{background:var(--gold-faint2);color:var(--gold)}
+.s-contacted{background:var(--blue-bg);color:var(--blue)}
+.s-booked{background:var(--amber-bg);color:var(--amber)}
+.s-proposal{background:rgba(180,100,220,0.1);color:#B464DC}
+.s-won{background:var(--green-bg);color:var(--green)}
+.s-lost{background:var(--red-bg);color:var(--red)}
+
+/* SCORE BAR */
+.score-wrap{display:flex;align-items:center;gap:8px}
+.score-bar{width:60px;height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden}
+.score-fill{height:100%;border-radius:3px;transition:width .3s}
+.score-num{font-size:12px;font-weight:700;min-width:24px}
+
+/* EMPTY */
+.empty{text-align:center;padding:60px 20px;color:var(--text-faint)}
+.empty-icon{font-size:40px;margin-bottom:12px;opacity:.4}
+.empty p{font-size:13px}
+
+/* DRAWER OVERLAY */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:none;backdrop-filter:blur(4px)}
+.overlay.open{display:block}
+.drawer{position:fixed;right:0;top:0;bottom:0;width:480px;background:var(--bg2);border-left:1px solid var(--border);z-index:301;overflow-y:auto;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.drawer.open{transform:translateX(0)}
+.drw-hdr{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:10}
+.drw-hdr h2{font-size:15px;font-weight:700}
+.close-btn{width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;color:var(--text-dim);font-size:18px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.close-btn:hover{border-color:var(--border2);color:var(--text)}
+.drw-body{padding:24px}
+.drw-section{margin-bottom:24px}
+.drw-section h3{font-size:10px;font-weight:700;letter-spacing:1.2px;color:var(--text-faint);text-transform:uppercase;margin-bottom:12px}
+.drw-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(201,168,76,0.06)}
+.drw-row:last-child{border:none}
+.drw-key{font-size:12px;color:var(--text-dim)}
+.drw-val{font-size:13px;font-weight:500;color:var(--text);text-align:right;max-width:60%}
+.score-breakdown{background:var(--surface);border-radius:var(--r);padding:16px}
+.sb-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(201,168,76,0.06)}
+.sb-row:last-child{border:none}
+.sb-pts{font-weight:700;color:var(--gold)}
+.call-script{background:var(--gold-faint);border:1px solid var(--border2);border-radius:var(--r);padding:16px}
+.call-script h4{font-size:11px;font-weight:700;letter-spacing:.8px;color:var(--gold);text-transform:uppercase;margin-bottom:10px}
+.call-script p{font-size:13px;line-height:1.6;color:var(--text)}
+.status-select{width:100%;background:var(--surface);border:1px solid var(--border2);border-radius:7px;padding:9px 12px;color:var(--text);font-family:inherit;font-size:13px;outline:none;cursor:pointer;margin-top:8px}
+.wa-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px;background:rgba(37,211,102,0.12);border:1px solid rgba(37,211,102,0.3);border-radius:7px;color:#25D366;font-size:13px;font-weight:600;text-decoration:none;margin-top:10px;transition:all .15s}
+.wa-btn:hover{background:rgba(37,211,102,0.2)}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:400;display:none;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:520px;max-height:85vh;overflow-y:auto}
+.modal-hdr{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-hdr h2{font-size:15px;font-weight:700}
+.modal-body{padding:24px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group.full{grid-column:1/-1}
+.form-group label{font-size:11px;font-weight:600;color:var(--text-dim);letter-spacing:.4px;text-transform:uppercase}
+.form-group input,.form-group select,.form-group textarea{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-family:inherit;font-size:13px;outline:none;transition:border .15s;width:100%}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--border2)}
+.form-group textarea{resize:vertical;min-height:70px}
+.modal-foot{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end}
+
+/* CSV IMPORT */
+.import-zone{border:2px dashed var(--border2);border-radius:var(--r);padding:30px;text-align:center;cursor:pointer;transition:all .2s}
+.import-zone:hover,.import-zone.drag{border-color:var(--gold);background:var(--gold-faint)}
+.import-zone p{color:var(--text-dim);font-size:13px;margin-top:8px}
+
+/* TOAST */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px 18px;font-size:13px;font-weight:500;z-index:999;transform:translateY(80px);opacity:0;transition:all .3s;max-width:300px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.success{border-color:var(--green);color:var(--green)}
+.toast.error{border-color:var(--red);color:var(--red)}
+
+/* PAGINATION */
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border)}
+.page-info{font-size:12px;color:var(--text-dim)}
+.page-btns{display:flex;gap:6px}
+.page-btn{padding:5px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text-dim);cursor:pointer;font-size:12px;transition:all .15s}
+.page-btn:hover,.page-btn.active{border-color:var(--gold);color:var(--gold);background:var(--gold-faint)}
+.page-btn:disabled{opacity:.3;cursor:not-allowed}
+
+@media(max-width:900px){.stats{grid-template-columns:repeat(3,1fr)}.drawer{width:100%}.form-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-l">
+    <a href="https://os.platefulconsulting.com" class="back">← OS</a>
+    <div class="hdr-logo">PFC</div>
+    <div class="hdr-info">
+      <h1>LEAD QUALIFIER</h1>
+      <p>Score · Filter · Convert</p>
+    </div>
+  </div>
+  <div class="hdr-r">
+    <span class="badge" id="liveCount">0 Leads</span>
+    <button class="btn btn-outline" onclick="openImport()">⬆ Import CSV</button>
+    <button class="btn btn-gold" onclick="openAdd()">+ Add Lead</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat"><div class="stat-val" id="s-total">0</div><div class="stat-label">TOTAL LEADS</div></div>
+    <div class="stat hot"><div class="stat-val" id="s-hot">0</div><div class="stat-label">🔥 HOT (12–16)</div></div>
+    <div class="stat warm"><div class="stat-val" id="s-warm">0</div><div class="stat-label">⚡ WARM (7–11)</div></div>
+    <div class="stat cold"><div class="stat-val" id="s-cold">0</div><div class="stat-label">❄️ COLD (&lt;7)</div></div>
+    <div class="stat won"><div class="stat-val" id="s-won">0</div><div class="stat-label">✅ WON</div></div>
+    <div class="stat"><div class="stat-val" id="s-avgScore" style="color:var(--text)">—</div><div class="stat-label">AVG SCORE</div></div>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <input type="text" id="searchInput" placeholder="Search restaurant, city, contact..." oninput="renderTable()">
+    </div>
+    <select id="filterBand" onchange="renderTable()">
+      <option value="">All Bands</option>
+      <option value="hot">🔥 Hot</option>
+      <option value="warm">⚡ Warm</option>
+      <option value="cold">❄️ Cold</option>
+      <option value="disq">✗ Disqualified</option>
+    </select>
+    <select id="filterStatus" onchange="renderTable()">
+      <option value="">All Status</option>
+      <option value="new">New</option>
+      <option value="contacted">Contacted</option>
+      <option value="booked">Call Booked</option>
+      <option value="proposal">Proposal Sent</option>
+      <option value="won">Won</option>
+      <option value="lost">Lost</option>
+    </select>
+    <select id="filterCity" onchange="renderTable()">
+      <option value="">All Cities</option>
+    </select>
+    <select id="filterPlatform" onchange="renderTable()">
+      <option value="">All Platforms</option>
+      <option value="zomato">Zomato</option>
+      <option value="swiggy">Swiggy</option>
+      <option value="both">Both</option>
+    </select>
+    <select id="filterBudget" onchange="renderTable()">
+      <option value="">All Budgets</option>
+      <option value="yes">Budget: Yes</option>
+      <option value="maybe">Budget: Maybe</option>
+      <option value="no">Budget: No</option>
+    </select>
+    <button class="btn btn-ghost" onclick="clearFilters()">✕ Clear</button>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th onclick="sortBy('restaurantName')">RESTAURANT ↕</th>
+          <th onclick="sortBy('city')">CITY ↕</th>
+          <th onclick="sortBy('platform')">PLATFORM</th>
+          <th onclick="sortBy('currentSales')">CURR. SALES ↕</th>
+          <th onclick="sortBy('score')">SCORE ↕</th>
+          <th>BAND</th>
+          <th>STATUS</th>
+          <th onclick="sortBy('createdAt')">SUBMITTED ↕</th>
+          <th>ACTION</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <div class="pagination">
+      <span class="page-info" id="pageInfo">Showing 0 leads</span>
+      <div class="page-btns" id="pageBtns"></div>
+    </div>
+  </div>
+</div>
+
+<!-- DRAWER -->
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drw-hdr">
+    <h2 id="drw-title">Lead Detail</h2>
+    <button class="close-btn" onclick="closeDrawer()">×</button>
+  </div>
+  <div class="drw-body" id="drw-body"></div>
+</div>
+
+<!-- ADD LEAD MODAL -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <h2>Add Lead Manually</h2>
+      <button class="close-btn" onclick="closeAdd()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Restaurant Name *</label><input id="f-name" placeholder="e.g. Biryani House"></div>
+        <div class="form-group"><label>Contact Person</label><input id="f-contact" placeholder="Owner name"></div>
+        <div class="form-group"><label>WhatsApp *</label><input id="f-wa" placeholder="+91 9XXXXXXXXX"></div>
+        <div class="form-group"><label>City *</label><input id="f-city" placeholder="e.g. Delhi"></div>
+        <div class="form-group"><label>Outlet Age</label>
+          <select id="f-age">
+            <option value="">Select</option>
+            <option value="new">Less than 3 months</option>
+            <option value="3-6m">3–6 months</option>
+            <option value="6-12m">6–12 months</option>
+            <option value="1y+">1+ year</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Primary Platform</label>
+          <select id="f-platform">
+            <option value="zomato">Zomato</option>
+            <option value="swiggy">Swiggy</option>
+            <option value="both">Both</option>
+            <option value="none">Not on both yet</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Current Monthly Sales (₹)</label><input id="f-sales" type="number" placeholder="e.g. 80000"></div>
+        <div class="form-group"><label>Target Monthly Sales (₹)</label><input id="f-target" type="number" placeholder="e.g. 200000"></div>
+        <div class="form-group full"><label>Biggest Blocker</label>
+          <select id="f-blocker">
+            <option value="">Select</option>
+            <option value="visibility">Low visibility / impressions</option>
+            <option value="conversion">Clicks not converting to orders</option>
+            <option value="margins">Margins getting eaten by discounts</option>
+            <option value="unknown">Don't know what's wrong</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Open to Investment?</label>
+          <select id="f-budget">
+            <option value="yes">Yes, ready to invest</option>
+            <option value="maybe">Maybe, need to understand ROI</option>
+            <option value="no">No / looking for free tips</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Status</label>
+          <select id="f-status">
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="booked">Call Booked</option>
+          </select>
+        </div>
+        <div class="form-group full"><label>Notes</label><textarea id="f-notes" placeholder="Any context..."></textarea></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeAdd()">Cancel</button>
+      <button class="btn btn-gold" onclick="saveLead()">Save Lead</button>
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT MODAL -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <h2>Import Leads from CSV</h2>
+      <button class="close-btn" onclick="closeImport()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="import-zone" id="importZone" onclick="document.getElementById('csvFile').click()">
+        <div style="font-size:32px">📂</div>
+        <p><strong>Click to upload</strong> or drag & drop CSV</p>
+        <p style="font-size:11px;margin-top:6px;color:var(--text-faint)">Typeform export or custom CSV</p>
+        <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="handleCSV(this)">
+      </div>
+      <div id="csvPreview" style="margin-top:16px;display:none">
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px" id="csvCount"></p>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:12px;max-height:200px;overflow-y:auto;font-size:12px;color:var(--text-dim)" id="csvSample"></div>
+      </div>
+      <div style="margin-top:16px;background:var(--gold-faint);border:1px solid var(--border);border-radius:7px;padding:12px">
+        <p style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:6px">EXPECTED COLUMNS</p>
+        <p style="font-size:11px;color:var(--text-dim);line-height:1.7">restaurantName · contactPerson · whatsapp · city · outletAge · platform · currentSales · targetSales · blocker · budget · notes</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeImport()">Cancel</button>
+      <button class="btn btn-gold" id="importBtn" onclick="importLeads()" disabled>Import Leads</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- FIREBASE + APP -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAfUnEaVm_QK0BvzDc0YxrYPjXmXc_EDf8",
+  authDomain: "propalate-os-8c88e.firebaseapp.com",
+  projectId: "propalate-os-8c88e",
+  storageBucket: "propalate-os-8c88e.firebasestorage.app",
+  messagingSenderId: "299086141719",
+  appId: "1:299086141719:web:7fe5a5d4f332581d72bf52"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const leadsCol = collection(db, 'leads');
+
+// ── STATE ──
+window._leads = [];
+window._sortKey = 'createdAt';
+window._sortDir = -1;
+window._page = 1;
+const PER_PAGE = 15;
+window._csvData = [];
+
+// ── SCORING ──
+function scoreLead(lead) {
+  let pts = 0; const breakdown = [];
+
+  // Outlet age (max 3)
+  const ageMap = {'new':0,'3-6m':1,'6-12m':2,'1y+':3};
+  const agePts = ageMap[lead.outletAge] ?? 1;
+  pts += agePts; breakdown.push({label:'Outlet age', pts: agePts, max:3});
+
+  // Platform (max 2)
+  const platPts = lead.platform === 'both' ? 2 : lead.platform === 'none' ? 0 : 1;
+  pts += platPts; breakdown.push({label:'Platform coverage', pts: platPts, max:2});
+
+  // Current sales (max 3)
+  const s = parseInt(lead.currentSales) || 0;
+  const salePts = s >= 200000 ? 0 : s >= 100000 ? 1 : s >= 50000 ? 2 : s > 0 ? 3 : 0;
+  pts += salePts; breakdown.push({label:'Room to grow (sales gap)', pts: salePts, max:3});
+
+  // Blocker clarity (max 3)
+  const bMap = {'visibility':3,'conversion':3,'margins':2,'unknown':1};
+  const bPts = bMap[lead.blocker] ?? 0;
+  pts += bPts; breakdown.push({label:'Blocker clarity', pts: bPts, max:3});
+
+  // Budget readiness (max 3)
+  const budMap = {'yes':3,'maybe':2,'no':0};
+  const budPts = budMap[lead.budget] ?? 0;
+  pts += budPts; breakdown.push({label:'Budget readiness', pts: budPts, max:3});
+
+  // Revenue gap (bonus, max 2)
+  const gap = (parseInt(lead.targetSales)||0) - (parseInt(lead.currentSales)||0);
+  const gapPts = gap >= 100000 ? 2 : gap >= 50000 ? 1 : 0;
+  pts += gapPts; breakdown.push({label:'Revenue gap (opportunity)', pts: gapPts, max:2});
+
+  // Band
+  let band, disq = false;
+  if (lead.platform === 'none' || lead.budget === 'no') { band = 'disq'; disq = true; }
+  else if (pts >= 12) band = 'hot';
+  else if (pts >= 7) band = 'warm';
+  else band = 'cold';
+
+  return { score: disq ? 0 : pts, band, breakdown };
+}
+
+// ── CALL SCRIPTS ──
+function callScript(lead) {
+  const scripts = {
+    visibility: `"Hi ${lead.contactPerson||'there'}, I saw your restaurant is on ${lead.platform === 'both' ? 'Zomato & Swiggy' : lead.platform} — we've helped outlets in ${lead.city||'your city'} go from invisible to top-ranked within 60 days by fixing how the algorithm sees them. Would 20 minutes be worth it to show you exactly what's holding your listing back?"`,
+    conversion: `"Hi ${lead.contactPerson||'there'}, the fact that you're getting clicks but not orders tells me the issue is downstream — probably menu structure, photos, or pricing signals. We fixed this exact problem for a cloud kitchen in ${lead.city||'Delhi'} and doubled their conversion. Can I walk you through what we'd change?"`,
+    margins: `"Hi ${lead.contactPerson||'there'}, discount dependency is one of the worst traps on Swiggy/Zomato — you grow orders but margins collapse. We've restructured 50+ restaurants off aggressive discounting without losing GMV. Would love to show you how."`,
+    unknown: `"Hi ${lead.contactPerson||'there'}, not knowing what's wrong is actually the most common situation — and the most fixable. We run a free 15-minute delivery audit that shows you exactly where your leakage is. No selling, just a diagnosis. Interested?"`,
+    default: `"Hi ${lead.contactPerson||'there'}, we help restaurants on Swiggy/Zomato grow 2–3x in 90 days by fixing the exact gaps in their delivery setup. Happy to do a quick no-pitch audit call?"`
+  };
+  return scripts[lead.blocker] || scripts.default;
+}
+
+// ── REALTIME LISTENER ──
+onSnapshot(query(leadsCol, orderBy('createdAt','desc')), snap => {
+  window._leads = snap.docs.map(d => ({id: d.id, ...d.data()}));
+  renderAll();
+});
+
+// ── RENDER ──
+window.renderAll = function() {
+  updateStats();
+  populateCityFilter();
+  renderTable();
+  document.getElementById('liveCount').textContent = `${window._leads.length} Leads`;
+};
+
+window.updateStats = function() {
+  const scored = window._leads.map(l => ({...l, ...scoreLead(l)}));
+  document.getElementById('s-total').textContent = scored.length;
+  document.getElementById('s-hot').textContent = scored.filter(l=>l.band==='hot').length;
+  document.getElementById('s-warm').textContent = scored.filter(l=>l.band==='warm').length;
+  document.getElementById('s-cold').textContent = scored.filter(l=>l.band==='cold').length;
+  document.getElementById('s-won').textContent = window._leads.filter(l=>l.status==='won').length;
+  const scores = scored.filter(l=>l.band!=='disq').map(l=>l.score);
+  document.getElementById('s-avgScore').textContent = scores.length ? (scores.reduce((a,b)=>a+b,0)/scores.length).toFixed(1) : '—';
+};
+
+window.populateCityFilter = function() {
+  const cities = [...new Set(window._leads.map(l=>l.city).filter(Boolean))].sort();
+  const sel = document.getElementById('filterCity');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Cities</option>' + cities.map(c=>`<option value="${c}">${c}</option>`).join('');
+  sel.value = cur;
+};
+
+window.renderTable = function() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const fBand = document.getElementById('filterBand').value;
+  const fStatus = document.getElementById('filterStatus').value;
+  const fCity = document.getElementById('filterCity').value;
+  const fPlatform = document.getElementById('filterPlatform').value;
+  const fBudget = document.getElementById('filterBudget').value;
+
+  let data = window._leads.map(l => ({...l, ...scoreLead(l)}));
+
+  if (search) data = data.filter(l =>
+    (l.restaurantName||'').toLowerCase().includes(search) ||
+    (l.city||'').toLowerCase().includes(search) ||
+    (l.contactPerson||'').toLowerCase().includes(search) ||
+    (l.whatsapp||'').includes(search)
+  );
+  if (fBand) data = data.filter(l => l.band === fBand);
+  if (fStatus) data = data.filter(l => (l.status||'new') === fStatus);
+  if (fCity) data = data.filter(l => l.city === fCity);
+  if (fPlatform) data = data.filter(l => l.platform === fPlatform);
+  if (fBudget) data = data.filter(l => l.budget === fBudget);
+
+  // Sort
+  data.sort((a,b) => {
+    let av = a[window._sortKey], bv = b[window._sortKey];
+    if (window._sortKey === 'createdAt') { av = av?.seconds||0; bv = bv?.seconds||0; }
+    if (typeof av === 'string') return window._sortDir * av.localeCompare(bv||'');
+    return window._sortDir * ((av||0) - (bv||0));
+  });
+
+  // Pagination
+  const total = data.length;
+  const pages = Math.ceil(total / PER_PAGE) || 1;
+  window._page = Math.min(window._page, pages);
+  const start = (window._page - 1) * PER_PAGE;
+  const paged = data.slice(start, start + PER_PAGE);
+
+  document.getElementById('pageInfo').textContent = `Showing ${start+1}–${Math.min(start+PER_PAGE,total)} of ${total} leads`;
+
+  // Page buttons
+  let pageBtnsHtml = `<button class="page-btn" onclick="changePage(${window._page-1})" ${window._page===1?'disabled':''}>‹</button>`;
+  for (let i=1;i<=pages;i++) pageBtnsHtml += `<button class="page-btn ${i===window._page?'active':''}" onclick="changePage(${i})">${i}</button>`;
+  pageBtnsHtml += `<button class="page-btn" onclick="changePage(${window._page+1})" ${window._page===pages?'disabled':''}>›</button>`;
+  document.getElementById('pageBtns').innerHTML = pageBtnsHtml;
+
+  const tbody = document.getElementById('tableBody');
+  if (!paged.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty"><div class="empty-icon">🔍</div><p>No leads match your filters</p></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = paged.map(l => {
+    const bandHtml = {
+      hot: '<span class="band band-hot">🔥 HOT</span>',
+      warm: '<span class="band band-warm">⚡ WARM</span>',
+      cold: '<span class="band band-cold">❄️ COLD</span>',
+      disq: '<span class="band band-disq">✗ DISQ</span>'
+    }[l.band] || '';
+
+    const statusCls = {new:'s-new',contacted:'s-contacted',booked:'s-booked',proposal:'s-proposal',won:'s-won',lost:'s-lost'}[l.status||'new'];
+    const statusLabel = {new:'New',contacted:'Contacted',booked:'Call Booked',proposal:'Proposal',won:'Won ✅',lost:'Lost'}[l.status||'new'];
+
+    const scoreColor = l.band==='hot'?'var(--red)':l.band==='warm'?'var(--amber)':l.band==='cold'?'var(--blue)':'#666';
+    const pct = Math.round((l.score/16)*100);
+    const date = l.createdAt?.seconds ? new Date(l.createdAt.seconds*1000).toLocaleDateString('en-IN',{day:'numeric',month:'short'}) : 'Manual';
+
+    return `<tr onclick="openDrawer('${l.id}')">
+      <td><strong>${l.restaurantName||'—'}</strong><div class="sub">${l.contactPerson||''} ${l.whatsapp?'· '+l.whatsapp:''}</div></td>
+      <td>${l.city||'—'}</td>
+      <td style="text-transform:capitalize">${l.platform||'—'}</td>
+      <td>${l.currentSales ? '₹'+parseInt(l.currentSales).toLocaleString('en-IN') : '—'}</td>
+      <td>
+        <div class="score-wrap">
+          <div class="score-bar"><div class="score-fill" style="width:${pct}%;background:${scoreColor}"></div></div>
+          <span class="score-num" style="color:${scoreColor}">${l.score}</span>
+        </div>
+      </td>
+      <td>${bandHtml}</td>
+      <td><span class="status ${statusCls}">${statusLabel}</span></td>
+      <td style="color:var(--text-dim);font-size:12px">${date}</td>
+      <td><button class="btn btn-ghost" style="font-size:11px;padding:5px 10px" onclick="event.stopPropagation();openDrawer('${l.id}')">View →</button></td>
+    </tr>`;
+  }).join('');
+};
+
+window.changePage = p => { window._page = p; renderTable(); };
+window.sortBy = key => {
+  if (window._sortKey === key) window._sortDir *= -1;
+  else { window._sortKey = key; window._sortDir = -1; }
+  renderTable();
+};
+window.clearFilters = () => {
+  ['searchInput','filterBand','filterStatus','filterCity','filterPlatform','filterBudget'].forEach(id => {
+    const el = document.getElementById(id);
+    el.value = el.tagName==='INPUT' ? '' : '';
+  });
+  renderTable();
+};
+
+// ── DRAWER ──
+window.openDrawer = function(id) {
+  const l = window._leads.find(x=>x.id===id);
+  if (!l) return;
+  const scored = {...l, ...scoreLead(l)};
+  const date = l.createdAt?.seconds ? new Date(l.createdAt.seconds*1000).toLocaleString('en-IN') : 'Manual entry';
+  const revGap = (parseInt(l.targetSales)||0) - (parseInt(l.currentSales)||0);
+  const bandLabel = {hot:'🔥 HOT',warm:'⚡ WARM',cold:'❄️ COLD',disq:'✗ DISQUALIFIED'}[scored.band];
+
+  document.getElementById('drw-title').textContent = l.restaurantName || 'Lead Detail';
+  document.getElementById('drw-body').innerHTML = `
+    <div class="drw-section">
+      <h3>Lead Info</h3>
+      <div class="drw-row"><span class="drw-key">Restaurant</span><span class="drw-val">${l.restaurantName||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Contact</span><span class="drw-val">${l.contactPerson||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">WhatsApp</span><span class="drw-val">${l.whatsapp||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">City</span><span class="drw-val">${l.city||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Platform</span><span class="drw-val" style="text-transform:capitalize">${l.platform||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Outlet Age</span><span class="drw-val">${l.outletAge||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Current Sales</span><span class="drw-val">${l.currentSales ? '₹'+parseInt(l.currentSales).toLocaleString('en-IN')+'/mo' : '—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Target Sales</span><span class="drw-val">${l.targetSales ? '₹'+parseInt(l.targetSales).toLocaleString('en-IN')+'/mo' : '—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Revenue Gap</span><span class="drw-val" style="color:var(--green)">${revGap>0 ? '₹'+revGap.toLocaleString('en-IN')+'/mo' : '—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Blocker</span><span class="drw-val">${l.blocker||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Budget</span><span class="drw-val">${l.budget||'—'}</span></div>
+      <div class="drw-row"><span class="drw-key">Submitted</span><span class="drw-val">${date}</span></div>
+      ${l.notes ? `<div class="drw-row"><span class="drw-key">Notes</span><span class="drw-val">${l.notes}</span></div>` : ''}
+    </div>
+
+    <div class="drw-section">
+      <h3>Delivery Score</h3>
+      <div class="score-breakdown">
+        <div class="sb-row"><span>Total Score</span><span class="sb-pts">${scored.score}/16</span></div>
+        <div class="sb-row"><span>Band</span><span class="sb-pts">${bandLabel}</span></div>
+        ${scored.breakdown.map(b=>`<div class="sb-row"><span>${b.label}</span><span class="sb-pts">${b.pts}/${b.max}</span></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="drw-section">
+      <h3>Opening Call Script</h3>
+      <div class="call-script">
+        <h4>📞 Say This First</h4>
+        <p>${callScript(l)}</p>
+      </div>
+      ${l.whatsapp ? `<a class="wa-btn" href="https://wa.me/${l.whatsapp.replace(/\D/g,'')}" target="_blank">📲 Open WhatsApp</a>` : ''}
+    </div>
+
+    <div class="drw-section">
+      <h3>Update Status</h3>
+      <select class="status-select" id="statusSel" onchange="updateStatus('${l.id}', this.value)">
+        <option value="new" ${(l.status||'new')==='new'?'selected':''}>New</option>
+        <option value="contacted" ${l.status==='contacted'?'selected':''}>Contacted</option>
+        <option value="booked" ${l.status==='booked'?'selected':''}>Call Booked</option>
+        <option value="proposal" ${l.status==='proposal'?'selected':''}>Proposal Sent</option>
+        <option value="won" ${l.status==='won'?'selected':''}>Won ✅</option>
+        <option value="lost" ${l.status==='lost'?'selected':''}>Lost ❌</option>
+      </select>
+    </div>
+  `;
+
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+};
+
+window.closeDrawer = () => {
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+};
+
+window.updateStatus = async (id, status) => {
+  try {
+    await updateDoc(doc(db,'leads',id), {status});
+    toast('Status updated ✓', 'success');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+};
+
+// ── ADD LEAD ──
+window.openAdd = () => document.getElementById('addModal').classList.add('open');
+window.closeAdd = () => document.getElementById('addModal').classList.remove('open');
+
+window.saveLead = async () => {
+  const name = document.getElementById('f-name').value.trim();
+  const wa = document.getElementById('f-wa').value.trim();
+  const city = document.getElementById('f-city').value.trim();
+  if (!name || !city) { toast('Restaurant name and city are required', 'error'); return; }
+
+  const lead = {
+    restaurantName: name,
+    contactPerson: document.getElementById('f-contact').value.trim(),
+    whatsapp: wa,
+    city,
+    outletAge: document.getElementById('f-age').value,
+    platform: document.getElementById('f-platform').value,
+    currentSales: document.getElementById('f-sales').value,
+    targetSales: document.getElementById('f-target').value,
+    blocker: document.getElementById('f-blocker').value,
+    budget: document.getElementById('f-budget').value,
+    status: document.getElementById('f-status').value,
+    notes: document.getElementById('f-notes').value.trim(),
+    source: 'manual',
+    createdAt: serverTimestamp()
+  };
+
+  try {
+    await addDoc(leadsCol, lead);
+    toast(`Lead saved — ${name}`, 'success');
+    closeAdd();
+    ['f-name','f-contact','f-wa','f-city','f-sales','f-target','f-notes'].forEach(id => document.getElementById(id).value='');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+};
+
+// ── CSV IMPORT ──
+window.openImport = () => document.getElementById('importModal').classList.add('open');
+window.closeImport = () => { document.getElementById('importModal').classList.remove('open'); window._csvData = []; document.getElementById('csvPreview').style.display='none'; document.getElementById('importBtn').disabled=true; };
+
+window.handleCSV = (input) => {
+  const file = input.files[0]; if (!file) return;
+  Papa.parse(file, {
+    header: true, skipEmptyLines: true,
+    complete: res => {
+      window._csvData = res.data;
+      document.getElementById('csvCount').textContent = `${res.data.length} rows detected`;
+      document.getElementById('csvSample').innerHTML = res.data.slice(0,3).map(r=>
+        Object.entries(r).slice(0,5).map(([k,v])=>`<span style="color:var(--gold)">${k}</span>: ${v}`).join(' · ')
+      ).join('<br>');
+      document.getElementById('csvPreview').style.display='block';
+      document.getElementById('importBtn').disabled = res.data.length === 0;
+    }
+  });
+};
+
+window.importLeads = async () => {
+  if (!window._csvData.length) return;
+  const btn = document.getElementById('importBtn');
+  btn.textContent = 'Importing...'; btn.disabled = true;
+  let count = 0;
+  for (const row of window._csvData) {
+    const lead = {
+      restaurantName: row.restaurantName || row['Restaurant Name'] || row.name || '',
+      contactPerson: row.contactPerson || row['Contact Person'] || row.contact || '',
+      whatsapp: row.whatsapp || row['WhatsApp'] || row.phone || '',
+      city: row.city || row['City'] || '',
+      outletAge: row.outletAge || row['Outlet Age'] || '',
+      platform: (row.platform || row['Platform'] || '').toLowerCase(),
+      currentSales: row.currentSales || row['Current Sales'] || '',
+      targetSales: row.targetSales || row['Target Sales'] || '',
+      blocker: (row.blocker || row['Blocker'] || '').toLowerCase(),
+      budget: (row.budget || row['Budget'] || '').toLowerCase(),
+      notes: row.notes || row['Notes'] || '',
+      status: 'new', source: 'csv_import',
+      createdAt: serverTimestamp()
+    };
+    if (lead.restaurantName) { await addDoc(leadsCol, lead); count++; }
+  }
+  toast(`${count} leads imported ✓`, 'success');
+  closeImport();
+};
+
+// ── TOAST ──
+window.toast = (msg, type='success') => {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = `toast ${type} show`;
+  setTimeout(() => el.classList.remove('show'), 3000);
+};
+
+// ── DRAG DROP ──
+const zone = document.getElementById('importZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) { const inp = document.getElementById('csvFile'); const dt = new DataTransfer(); dt.items.add(file); inp.files = dt.files; handleCSV(inp); }
+});
+</script>
+</body>
+</html>
