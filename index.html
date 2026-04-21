@@ -1420,9 +1420,15 @@
         <div class="notif-badge" id="notifBadge">0</div>
       </div>
       <div style="width:1px;height:20px;background:var(--black4);margin:0 4px;"></div>
-      <div class="topbar-avatar" id="topbarAvatar"></div>
-      <div class="topbar-name" id="topbarName"></div>
-      <div style="font-size:16px;cursor:pointer;color:var(--white3);margin-left:4px;" onclick="openSettings()">⚙️</div>
+      <div id="topbarUserMenu" onclick="toggleUserMenu(event)" style="display:flex;align-items:center;gap:6px;cursor:pointer;position:relative;padding:4px 6px;border-radius:8px;">
+        <div class="topbar-avatar" id="topbarAvatar"></div>
+        <div class="topbar-name" id="topbarName"></div>
+        <div style="font-size:10px;color:var(--white3);margin-left:2px;">▾</div>
+        <div id="topbarDropdown" style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--black2);border:1px solid var(--black4);border-radius:10px;min-width:180px;padding:6px 0;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:1000;">
+          <div id="dropdownSettings" onclick="event.stopPropagation();closeUserMenu();openSettings();" onmouseover="this.style.background='var(--black3)'" onmouseout="this.style.background='transparent'" style="padding:10px 14px;font-size:14px;color:var(--white);display:flex;align-items:center;gap:10px;">⚙️ Settings</div>
+          <div onclick="event.stopPropagation();closeUserMenu();if(confirm('Sign out?'))logout();" onmouseover="this.style.background='var(--black3)'" onmouseout="this.style.background='transparent'" style="padding:10px 14px;font-size:14px;color:#ff6b6b;display:flex;align-items:center;gap:10px;border-top:1px solid var(--black4);">🚪 Sign out</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1614,6 +1620,12 @@
         <div class="ops-card-title">Menu Optimizer</div>
         <div class="ops-card-sub">Upload · AI gap analysis · Suggestions · Audit history</div>
         <div style="position:absolute;top:10px;right:10px;background:var(--gold);color:var(--black);font-size:8px;font-weight:900;padding:2px 7px;border-radius:20px;letter-spacing:1px">AI</div>
+      </div>
+      <div class="ops-hub-card" onclick="window.open('nurture-dashboard.html','_blank')" style="grid-column:1/-1;border:1px solid rgba(201,168,76,0.3);position:relative">
+        <div class="ops-card-icon">💬</div>
+        <div class="ops-card-title">Lead Nurture Engine</div>
+        <div class="ops-card-sub">WhatsApp sequences · Lead pipeline · CSV upload</div>
+        <div style="position:absolute;top:10px;right:10px;background:var(--gold);color:var(--black);font-size:8px;font-weight:900;padding:2px 7px;border-radius:20px;letter-spacing:1px">NEW</div>
       </div>
       <div class="ops-hub-card" onclick="switchTab('sop')" style="display:none;position:relative">
         <div class="ops-card-icon">📚</div>
@@ -2796,8 +2808,16 @@ window.addEventListener('load', () => {
     splash.style.transition = 'opacity 0.4s';
     setTimeout(() => {
       splash.style.display = 'none';
-      // Always force login — clear any saved session
-      localStorage.removeItem('propalate_user');
+      // Restore saved session if present; otherwise show login
+      try {
+        const _savedUser = JSON.parse(localStorage.getItem('propalate_user') || 'null');
+        if (_savedUser && _savedUser.id) {
+          currentUser = _savedUser;
+          if (window._initFCM) setTimeout(window._initFCM, 1000);
+          launchApp();
+          return;
+        }
+      } catch (e) {}
       currentUser = null;
       showLogin();
     }, 400);
@@ -3104,9 +3124,19 @@ function launchApp() {
   // Apply restrictions after render
   setTimeout(function() { applyRoleRestrictions(isSuperAdmin, isAdmin, isViewer); }, 100);
 
-  // Explicitly activate home screen (screens are display:none by default)
+  // Restore last visited top-level tab, or default to home
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById('screen-home')?.classList.add('active');
+  let _restoreTab = 'home';
+  try {
+    const _saved = localStorage.getItem('propalate_last_tab');
+    if (_saved && document.getElementById('screen-' + _saved)) {
+      const _salesAllowed = ['home','tasks','sales','sales-detail','notifications','team','activity'];
+      if (!isSalesAssociate || _salesAllowed.indexOf(_saved) !== -1) {
+        _restoreTab = _saved;
+      }
+    }
+  } catch (e) {}
+  switchTab(_restoreTab);
 
   loadTasks();
   renderNotifications();
@@ -3173,9 +3203,9 @@ function applyRoleRestrictions(isSuperAdmin, isAdmin, isViewer) {
     document.querySelectorAll('.ca-btn.del, [onclick*="deleteClient"]').forEach(function(el){ el.style.display='none'; });
   }
 
-  // ── SETTINGS cog — superadmin only ──
-  const settingsBtn = document.querySelector('[onclick="openSettings()"]');
-  if (settingsBtn && !isSuperAdmin) settingsBtn.style.display = 'none';
+  // ── SETTINGS dropdown item — superadmin only ──
+  const settingsBtn = document.getElementById('dropdownSettings');
+  if (settingsBtn) settingsBtn.style.display = isSuperAdmin ? 'flex' : 'none';
 
   // Show role indicator in topbar
   const roleColors = { superadmin: '#c9a84c', admin: '#5588e0', member: '#aaa', viewer: '#555' };
@@ -3962,6 +3992,10 @@ async function removeUser(id) {
 }
 
 function logout() {
+  try {
+    localStorage.removeItem('propalate_user');
+    localStorage.removeItem('propalate_last_tab');
+  } catch (e) {}
   currentUser = null;
   document.getElementById('app').style.display = 'none';
   pinBuffer = '';
@@ -3973,6 +4007,21 @@ function logout() {
   allUsers = getStoredUsers();
   if (salesLoginMode) { renderSalesUserGrid(); } else { renderUserGrid(); }
 }
+
+function toggleUserMenu(e) {
+  if (e) e.stopPropagation();
+  const dd = document.getElementById('topbarDropdown');
+  if (!dd) return;
+  dd.style.display = (dd.style.display === 'block') ? 'none' : 'block';
+}
+function closeUserMenu() {
+  const dd = document.getElementById('topbarDropdown');
+  if (dd) dd.style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const menu = document.getElementById('topbarUserMenu');
+  if (menu && !menu.contains(e.target)) closeUserMenu();
+});
 
 // ══════════════════════════════════════════════════════════
 // NAV + FILTERS
@@ -3997,6 +4046,11 @@ function switchTab(tab) {
     target.classList.add('active');
     // Revenue needs flex, all others block
     target.style.display = tab === 'revenue' ? 'flex' : 'block';
+    // Persist only top-level tabs; detail views refresh to their parent
+    const SAFE_RESTORE_TABS = ['home','tasks','notifications','team','clients-hub','revenue','sales','hr','ops','activity','payments','aggregators','strategy','onboarding','menu-optimizer','sop','audit-log','firebase-users','swiggy-creds'];
+    if (SAFE_RESTORE_TABS.indexOf(tab) !== -1) {
+      try { localStorage.setItem('propalate_last_tab', tab); } catch (e) {}
+    }
   }
   // Nav highlight: OPS sub-tabs all highlight the OPS nav item
   const OPS_SUBS = ['clients','clients-hub','activity','payments','aggregators','strategy','onboarding','onboarding-detail','audit-log','firebase-users','menu-optimizer','menu-master','hr','hr-detail','sales','sales-detail','quote-builder','revenue','scorecard','sop','swiggy-creds'];
