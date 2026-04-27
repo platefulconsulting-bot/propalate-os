@@ -239,11 +239,24 @@ function showToast(msg, type='success') {
 // ══════════════════════════════════════════════════════════════
 // DATA
 // ══════════════════════════════════════════════════════════════
+async function loadAllLeadsPaged() {
+  const PAGE = 1000;
+  const HARD_CEILING = 50000;
+  let all = [];
+  for (let off = 0; off < HARD_CEILING; off += PAGE) {
+    const batch = await sb(`leads?select=*&order=created_at.desc&limit=${PAGE}&offset=${off}`);
+    if (!batch || !batch.length) break;
+    all = all.concat(batch);
+    if (batch.length < PAGE) break;
+  }
+  return all;
+}
+
 async function loadAll() {
   state.loading = true; render();
   try {
     const [l, s, p, sl] = await Promise.all([
-      sb('leads?select=*&order=created_at.desc&limit=500'),
+      loadAllLeadsPaged(),
       sb('sequences?select=*&order=created_at.desc'),
       sb('pipeline_stats?select=*'),
       sb('send_log?select=*&order=sent_at.desc&limit=100'),
