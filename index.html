@@ -9726,6 +9726,26 @@ window.PFC_PLANS = [
    installments:[],services:[],target:'',guarantee:'',duration:'',keyPoints:[]}
 ];
 
+// Snapshot defaults for "Reset" + load any user-saved overrides from localStorage
+window.PFC_PLANS_DEFAULTS = JSON.parse(JSON.stringify(window.PFC_PLANS));
+const PFC_PLANS_KEY = 'pfc_plans_overrides_v1';
+(function loadPlanOverrides(){
+  try {
+    const raw = localStorage.getItem(PFC_PLANS_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!Array.isArray(saved)) return;
+    saved.forEach(sp => {
+      const i = window.PFC_PLANS.findIndex(p => p.id === sp.id);
+      if (i !== -1) window.PFC_PLANS[i] = Object.assign({}, window.PFC_PLANS[i], sp);
+    });
+  } catch(e) { console.warn('plan overrides load failed', e); }
+})();
+window.savePlans = function(){
+  try { localStorage.setItem(PFC_PLANS_KEY, JSON.stringify(window.PFC_PLANS)); } catch(e) {}
+};
+function _qbEsc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
 window.PFC_SIGNATORIES = [
   {name:'Saurav Gosain',title:'Co-Founder, Plateful Consulting',email:'info@platefulconsulting.com',phone:'+91 8130032195'},
   {name:'Deepak Desh Bandhu',title:'Co-Founder, Plateful Consulting',email:'info@platefulconsulting.com',phone:'+91 8130032195'},
@@ -9808,13 +9828,14 @@ window.renderQuoteBuilder = function(){
       ${PFC_PLANS.map(p=>`<div class="qb-pc${(s.planIds||[]).indexOf(p.id)!==-1?' sel':''}" onclick="qbPlan('${p.id}')">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div><div style="font-size:13px;font-weight:600;color:#f5f5f0">${p.name}</div><div style="font-size:10px;color:#666;margin-top:1px">${p.subtitle}</div></div>
-          <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px">
+            ${p.id!=='custom'?`<button onclick="event.stopPropagation();qbEditPlan('${p.id}')" title="Edit plan details" style="background:#1a1a1a;border:1px solid #333;color:#c9a84c;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:inherit">\u270e Edit</button>`:''}
             <div class="qb-pchk">${(s.planIds||[]).indexOf(p.id)!==-1?'\u2713':''}</div>
           </div>
         </div>
         ${(s.planIds||[]).indexOf(p.id)!==-1?`<div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-          <div style="flex:1"><div style="font-size:10px;color:#888;margin-bottom:3px">MRP (\u20b9)</div><input class="qb-inp" type="number" value="${p.mrp}" oninput="PFC_PLANS.find(x=>x.id==='${p.id}').mrp=Number(this.value)" style="text-decoration:line-through;color:#555"></div>
-          <div style="flex:1"><div style="font-size:10px;color:#888;margin-bottom:3px">Price (\u20b9)</div><input class="qb-inp" type="number" value="${p.price}" oninput="PFC_PLANS.find(x=>x.id==='${p.id}').price=Number(this.value)"></div>
+          <div style="flex:1"><div style="font-size:10px;color:#888;margin-bottom:3px">MRP (\u20b9)</div><input class="qb-inp" type="number" value="${p.mrp}" oninput="PFC_PLANS.find(x=>x.id==='${p.id}').mrp=Number(this.value);savePlans()" style="text-decoration:line-through;color:#555"></div>
+          <div style="flex:1"><div style="font-size:10px;color:#888;margin-bottom:3px">Price (\u20b9)</div><input class="qb-inp" type="number" value="${p.price}" oninput="PFC_PLANS.find(x=>x.id==='${p.id}').price=Number(this.value);savePlans()"></div>
         </div>`:'<div style="display:flex;align-items:center;gap:8px;margin-top:4px">'+(p.mrp&&p.mrp!==p.price?'<span style="font-size:11px;color:#555;text-decoration:line-through">\u20b9'+p.mrp.toLocaleString('en-IN')+'</span>':'')+'<span style="font-size:13px;font-weight:700;color:#c9a84c">'+(p.price?'\u20b9'+p.price.toLocaleString('en-IN'):'Custom')+'</span></div>'}
         <div style="font-size:11px;color:#666;margin-top:4px;line-height:1.5">${p.desc}</div>
       </div>`).join('')}
@@ -10174,6 +10195,120 @@ var _comboName=plans.map(function(p){return p.name;}).join(' + ');
     console.error('QB PDF error:',err);
     if(window.showToast)showToast('PDF error: '+err.message,'error');
   }
+};
+
+// \u2500\u2500 PLAN EDITOR \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+window.qbEditPlan = function(id){
+  const p = PFC_PLANS.find(x => x.id === id);
+  if (!p) return;
+  window._qbEdit = JSON.parse(JSON.stringify(p));
+  qbRenderEditModal();
+};
+
+window.qbCloseEdit = function(){
+  document.getElementById('qbEditM')?.remove();
+  window._qbEdit = null;
+};
+
+window.qbEAdd = function(field){
+  const e = window._qbEdit;
+  if (!Array.isArray(e[field])) e[field] = [];
+  if (field === 'installments') e[field].push({label:'',amount:0,due:''});
+  else e[field].push('');
+  qbRenderEditModal();
+};
+window.qbERm = function(field, i){ window._qbEdit[field].splice(i,1); qbRenderEditModal(); };
+window.qbEAddKP = function(){
+  if (!Array.isArray(window._qbEdit.keyPoints)) window._qbEdit.keyPoints = [];
+  window._qbEdit.keyPoints.push({title:'',body:''});
+  qbRenderEditModal();
+};
+
+window.qbSavePlan = function(){
+  const e = window._qbEdit; if (!e) return;
+  if (!String(e.name||'').trim()) { if(window.showToast) showToast('Plan name required','error'); return; }
+  const i = PFC_PLANS.findIndex(p => p.id === e.id);
+  if (i === -1) return;
+  PFC_PLANS[i] = JSON.parse(JSON.stringify(e));
+  savePlans();
+  if (window._qb) window._qb._ie = false;
+  qbCloseEdit();
+  if (window.renderQuoteBuilder) renderQuoteBuilder();
+  if (window.showToast) showToast('Plan saved');
+};
+
+window.qbResetPlan = function(id){
+  const def = PFC_PLANS_DEFAULTS.find(p => p.id === id);
+  if (!def) return;
+  if (!confirm('Reset this plan to its original details? Your edits to this plan will be lost.')) return;
+  const i = PFC_PLANS.findIndex(p => p.id === id);
+  if (i !== -1) PFC_PLANS[i] = JSON.parse(JSON.stringify(def));
+  savePlans();
+  if (window._qb) window._qb._ie = false;
+  qbCloseEdit();
+  if (window.renderQuoteBuilder) renderQuoteBuilder();
+  if (window.showToast) showToast('Plan reset to defaults');
+};
+
+window.qbRenderEditModal = function(){
+  const e = window._qbEdit; if (!e) return;
+  let m = document.getElementById('qbEditM');
+  if (!m) { m = document.createElement('div'); m.id = 'qbEditM'; document.body.appendChild(m); }
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:6500;overflow-y:auto;padding:16px;';
+  const ins = e.installments || [];
+  const svc = e.services || [];
+  const kp  = e.keyPoints || [];
+  m.innerHTML = `
+    <div style="max-width:560px;margin:0 auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;position:sticky;top:0;background:#0a0a0a;padding:8px 0;z-index:1">
+        <div style="color:#c9a84c;font-size:14px;font-weight:700">EDIT PLAN</div>
+        <button onclick="qbCloseEdit()" style="background:#1a1a1a;border:1px solid #333;color:#f5f5f0;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:12px">\u2715 Cancel</button>
+      </div>
+      <div class="qb-sec"><div class="qb-stitle">Basic Info</div>
+        <div class="qb-fld"><div class="qb-lbl">Plan Name *</div><input class="qb-inp" oninput="window._qbEdit.name=this.value" value="${_qbEsc(e.name)}"></div>
+        <div class="qb-fld"><div class="qb-lbl">Subtitle</div><input class="qb-inp" oninput="window._qbEdit.subtitle=this.value" value="${_qbEsc(e.subtitle)}"></div>
+        <div class="qb-fld"><div class="qb-lbl">Description</div><textarea class="qb-inp" rows="3" oninput="window._qbEdit.desc=this.value">${_qbEsc(e.desc)}</textarea></div>
+        <div class="qb-row">
+          <div class="qb-fld"><div class="qb-lbl">MRP (\u20b9)</div><input class="qb-inp" type="number" oninput="window._qbEdit.mrp=Number(this.value)||0" value="${e.mrp||0}"></div>
+          <div class="qb-fld"><div class="qb-lbl">Price (\u20b9)</div><input class="qb-inp" type="number" oninput="window._qbEdit.price=Number(this.value)||0" value="${e.price||0}"></div>
+        </div>
+        <div class="qb-row">
+          <div class="qb-fld"><div class="qb-lbl">Duration</div><input class="qb-inp" oninput="window._qbEdit.duration=this.value" value="${_qbEsc(e.duration)}"></div>
+          <div class="qb-fld"><div class="qb-lbl">Target</div><input class="qb-inp" oninput="window._qbEdit.target=this.value" value="${_qbEsc(e.target)}"></div>
+        </div>
+        <div class="qb-fld"><div class="qb-lbl">Guarantee</div><input class="qb-inp" oninput="window._qbEdit.guarantee=this.value" value="${_qbEsc(e.guarantee)}"></div>
+      </div>
+      <div class="qb-sec"><div class="qb-stitle">Installments</div>
+        ${ins.map((it,i)=>`<div class="qb-ir">
+          <input class="qb-inp" style="flex:1.2" placeholder="Label" value="${_qbEsc(it.label)}" oninput="window._qbEdit.installments[${i}].label=this.value">
+          <input class="qb-inp" style="flex:0.7" type="number" placeholder="\u20b9" value="${it.amount||0}" oninput="window._qbEdit.installments[${i}].amount=Number(this.value)||0">
+          <input class="qb-inp" style="flex:1.5" placeholder="Due condition" value="${_qbEsc(it.due)}" oninput="window._qbEdit.installments[${i}].due=this.value">
+          <button class="qb-rem" onclick="qbERm('installments',${i})">\u2715</button>
+        </div>`).join('')}
+        <button class="qb-add" onclick="qbEAdd('installments')">+ Add Installment</button>
+      </div>
+      <div class="qb-sec"><div class="qb-stitle">Services Included</div>
+        ${svc.map((sv,i)=>`<div class="qb-ir">
+          <input class="qb-inp" placeholder="Service" value="${_qbEsc(sv)}" oninput="window._qbEdit.services[${i}]=this.value">
+          <button class="qb-rem" onclick="qbERm('services',${i})">\u2715</button>
+        </div>`).join('')}
+        <button class="qb-add" onclick="qbEAdd('services')">+ Add Service</button>
+      </div>
+      <div class="qb-sec"><div class="qb-stitle">Key Points</div>
+        ${kp.map((it,i)=>`<div style="background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="display:flex;gap:8px;margin-bottom:6px">
+            <input class="qb-inp" style="flex:1" placeholder="Title" value="${_qbEsc(it.title)}" oninput="window._qbEdit.keyPoints[${i}].title=this.value">
+            <button class="qb-rem" onclick="qbERm('keyPoints',${i})">\u2715</button>
+          </div>
+          <textarea class="qb-inp" rows="2" placeholder="Body" oninput="window._qbEdit.keyPoints[${i}].body=this.value">${_qbEsc(it.body)}</textarea>
+        </div>`).join('')}
+        <button class="qb-add" onclick="qbEAddKP()">+ Add Key Point</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;margin-bottom:24px">
+        <button class="qb-btn qb-bs" onclick="qbResetPlan('${e.id}')">\u21ba Reset to Default</button>
+        <button class="qb-btn qb-bg" onclick="qbSavePlan()">\ud83d\udcbe Save Plan</button>
+      </div>
+    </div>`;
 };
 
 })();
