@@ -755,15 +755,24 @@ window.doUpdateLead = function(id) {
 
 let csvParsed = [];
 let csvDropped = 0;
+let csvDuplicates = 0;
+let csvDroppedSamples = [];
+let csvDuplicateSamples = [];
 
 function renderUploadPreview() {
   const prev = document.getElementById('csv-preview');
   if (!prev) return;
-  const dropMsg = csvDropped > 0
-    ? `<div style="background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);border-radius:8px;padding:8px 14px;margin:8px 0;font-size:12px;color:#fca5a5">⚠ ${csvDropped} row${csvDropped===1?'':'s'} dropped (missing or unrecognizable phone)</div>`
+  const warnRow = (label, count, samples, color) => count > 0
+    ? `<details style="background:rgba(${color},0.10);border:1px solid rgba(${color},0.3);border-radius:8px;padding:8px 14px;margin:8px 0;font-size:12px;color:rgba(${color},1)">
+         <summary style="cursor:pointer;font-weight:600">⚠ ${count} ${label}${count===1?'':'s'} (click to see first ${Math.min(count,10)})</summary>
+         <div style="margin-top:8px;font-family:var(--mono);font-size:11px;line-height:1.6;max-height:160px;overflow:auto">
+           ${samples.slice(0,10).map(r=>`• ${(r.name||'(no name)')} — phone: <code>${(r.rawPhone||'(empty)')}</code>${r.note?'  '+r.note:''}`).join('<br>')}
+         </div>
+       </details>`
     : '';
-  prev.innerHTML = `<div style="background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:13px;color:#86efac;font-weight:600">${csvParsed.length} leads parsed</div>
-    ${dropMsg}
+  prev.innerHTML = `<div style="background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:13px;color:#86efac;font-weight:600">${csvParsed.length} unique leads ready to upload</div>
+    ${warnRow('row dropped (unrecognizable phone)', csvDropped, csvDroppedSamples, '248,113,113')}
+    ${warnRow('duplicate phone collapsed', csvDuplicates, csvDuplicateSamples, '251,191,36')}
     <label>Assign to sequence:</label>
     <select id="csv-seq"><option value="">None (new leads only)</option>${state.sequences.map(s=>`<option value="${s.id}">${s.name} (${s.total_steps} steps)</option>`).join('')}</select>
     <div style="max-height:180px;overflow:auto;margin:12px 0;border:1px solid var(--border);border-radius:8px">
@@ -776,9 +785,26 @@ function renderUploadPreview() {
 }
 
 function applyMapped(rows) {
-  const mapped = rows.map(mapCSV);
-  csvParsed = mapped.filter(r => r.phone);
-  csvDropped = mapped.length - csvParsed.length;
+  csvDropped = 0; csvDuplicates = 0; csvDroppedSamples = []; csvDuplicateSamples = [];
+  const seen = new Map();
+  const kept = [];
+  rows.forEach(raw => {
+    const mapped = mapCSV(raw);
+    const rawPhone = String(raw.phone||raw.phone_number||raw.mobile||raw.whatsapp||raw.contact||'').trim();
+    if (!mapped.phone) {
+      csvDropped++;
+      if (csvDroppedSamples.length < 10) csvDroppedSamples.push({name: mapped.name, rawPhone});
+      return;
+    }
+    if (seen.has(mapped.phone)) {
+      csvDuplicates++;
+      if (csvDuplicateSamples.length < 10) csvDuplicateSamples.push({name: mapped.name, rawPhone, note:'(matches '+seen.get(mapped.phone).name+')'});
+      return;
+    }
+    seen.set(mapped.phone, mapped);
+    kept.push(mapped);
+  });
+  csvParsed = kept;
 }
 
 window.handleFile = function(input) {
