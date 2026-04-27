@@ -65,9 +65,9 @@ main { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
 .stat-card .value { font-size: 30px; font-weight: 700; color: var(--text); margin-top: 4px; font-family: var(--mono); }
 
 /* PIPELINE */
-.pipeline { background: var(--bg2); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid var(--border); }
+.pipeline { background: var(--bg2); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid var(--border); overflow: hidden; }
 .pipeline h3 { font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
-.funnel { display: flex; gap: 6px; align-items: end; height: 90px; }
+.funnel { display: flex; gap: 6px; align-items: end; height: 120px; }
 .funnel-bar { flex: 1; text-align: center; }
 .funnel-bar .count { font-size: 15px; font-weight: 700; font-family: var(--mono); margin-bottom: 4px; }
 .funnel-bar .bar { border-radius: 4px 4px 0 0; transition: height 0.4s ease; min-height: 3px; }
@@ -209,6 +209,26 @@ const STAGES = [
   {key:'dead',label:'Dead',color:'#78716c'},
   {key:'dnc',label:'DNC',color:'#dc2626'},
 ];
+
+// ── WhatsApp click-to-chat ──
+const DEFAULT_WA_TEMPLATE = `Hi {firstName}, this is from Plateful Consulting. We help restaurants like {restaurant} grow on Swiggy & Zomato. Do you have a minute to chat?`;
+state.waTemplate = localStorage.getItem('pfc_wa_template') || DEFAULT_WA_TEMPLATE;
+state.showWaTemplate = false;
+
+function fillWaTemplate(tpl, lead) {
+  const first = (lead.name || '').trim().split(/\s+/)[0] || 'there';
+  return String(tpl||'')
+    .replace(/\{firstName\}/g, first)
+    .replace(/\{name\}/g, lead.name || 'there')
+    .replace(/\{restaurant\}/g, lead.restaurant_name || 'your restaurant')
+    .replace(/\{city\}/g, lead.city || 'your city');
+}
+function waUrlFor(lead, msg) {
+  const phone = String(lead.phone || '').replace(/[^\d]/g, '');
+  if (!phone) return null;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+}
+function escAttr(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function showToast(msg, type='success') {
   state.toast = {msg, type};
@@ -416,11 +436,14 @@ function render() {
     </div>`;
 
     // PIPELINE
-    const total = leads.length || 1;
+    const funnelStages = STAGES.filter(s=>s.key!=='dnc');
+    const stageCounts = funnelStages.map(st => (state.pipelineStats.find(p=>p.stage===st.key)||{}).count||0);
+    const maxCount = Math.max(1, ...stageCounts);
+    const MAX_BAR_PX = 60;
     html += `<div class="pipeline"><h3>Pipeline</h3><div class="funnel">`;
-    STAGES.filter(s=>s.key!=='dnc').forEach(st => {
-      const count = (state.pipelineStats.find(p=>p.stage===st.key)||{}).count||0;
-      const pct = Math.max((count/total)*100, 3);
+    funnelStages.forEach((st, i) => {
+      const count = stageCounts[i];
+      const pct = Math.max((count/maxCount)*MAX_BAR_PX, 3);
       html += `<div class="funnel-bar">
         <div class="count" style="color:${st.color}">${count}</div>
         <div class="bar" style="height:${pct}px;background:${st.color}"></div>
@@ -460,6 +483,7 @@ function render() {
       </select>` : ''}
       <button class="btn btn-primary" onclick="state.showAddLead=true;render()">+ Add lead</button>
       <button class="btn btn-outline" onclick="state.showCSV=true;render()">Upload CSV / Excel</button>
+      <button class="btn btn-outline" onclick="state.showWaTemplate=true;render()">WA Template</button>
       <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
     </div>`;
 
@@ -479,9 +503,10 @@ function render() {
       const seq = seqs.find(s=>s.id===l.sequence_id);
       const rating = l.swiggy_rating ? `<span class="${l.swiggy_rating<3.8?'rating-low':'rating-ok'}">${l.swiggy_rating}</span>` : '—';
       const next = l.next_send_at ? new Date(l.next_send_at).toLocaleString('en-IN',{dateStyle:'short',timeStyle:'short'}) : '—';
+      const waBtn = l.phone ? `<button onclick="event.stopPropagation();openWAFor('${l.id}')" title="Message on WhatsApp" style="margin-left:8px;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);color:#86efac;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">WA</button>` : '';
       html += `<tr onclick="openLead('${l.id}')">
         <td style="font-weight:600">${l.name}</td>
-        <td class="phone">${l.phone}</td>
+        <td class="phone">${l.phone}${waBtn}</td>
         <td class="muted">${l.restaurant_name||'—'}</td>
         <td class="muted">${l.city||'—'}</td>
         <td>${rating}</td>
@@ -611,9 +636,25 @@ function render() {
           <div><label>Sequence</label><select id="ld-seq"><option value="">None</option>${seqs.map(s=>`<option value="${s.id}" ${l.sequence_id===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div>
         </div>
         <label>Notes</label><textarea id="ld-notes">${l.notes||''}</textarea>
-        <div style="display:flex;gap:12px">
-          <button class="btn btn-primary" style="flex:1;padding:14px" onclick="doUpdateLead('${l.id}')">Save</button>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="btn btn-primary" style="flex:1;padding:14px;min-width:100px" onclick="doUpdateLead('${l.id}')">Save</button>
+          ${l.phone ? `<button class="btn" style="padding:14px 20px;background:rgba(74,222,128,0.15);color:#86efac;border:1px solid rgba(74,222,128,0.35)" onclick="openWAFor('${l.id}')">Message on WhatsApp</button>` : ''}
           <button class="btn btn-danger" style="padding:14px 20px" onclick="updateLead('${l.id}',{stage:'dnc',next_send_at:null})">Mark DNC</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // WA TEMPLATE
+  if(state.showWaTemplate) {
+    html += `<div class="overlay" onclick="state.showWaTemplate=false;render()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>WhatsApp template</h2>
+        <div class="muted" style="font-size:11px;margin-bottom:10px">Placeholders: <b>{firstName}</b>, <b>{name}</b>, <b>{restaurant}</b>, <b>{city}</b></div>
+        <textarea id="wa-tpl" rows="6" style="min-height:140px">${escAttr(state.waTemplate)}</textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-outline" style="flex:1;padding:14px" onclick="resetWaTemplate()">Reset to default</button>
+          <button class="btn btn-primary" style="flex:1;padding:14px" onclick="saveWaTemplate()">Save</button>
         </div>
       </div>
     </div>`;
@@ -656,6 +697,29 @@ window.doAddLead = function() {
     next_send_at: seqId? new Date().toISOString():null,
     source:'manual',
   });
+};
+
+window.openWAFor = function(id) {
+  const lead = state.leads.find(l => l.id === id);
+  if (!lead) return;
+  const url = waUrlFor(lead, fillWaTemplate(state.waTemplate, lead));
+  if (!url) return showToast('No phone number on this lead', 'error');
+  window.open(url, '_blank');
+};
+
+window.saveWaTemplate = function() {
+  const v = document.getElementById('wa-tpl')?.value;
+  if (v == null) return;
+  state.waTemplate = v;
+  localStorage.setItem('pfc_wa_template', v);
+  state.showWaTemplate = false;
+  showToast('Template saved');
+};
+
+window.resetWaTemplate = function() {
+  state.waTemplate = DEFAULT_WA_TEMPLATE;
+  localStorage.removeItem('pfc_wa_template');
+  render();
 };
 
 window.doUpdateLead = function(id) {
