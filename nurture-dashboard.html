@@ -476,7 +476,7 @@ function render() {
   html += `<header>
     <div><span class="logo">PFC</span><span class="logo"><span>Lead Nurture Engine</span></span></div>
     <nav>
-      ${['dashboard','leads','queue','sequences','logs'].map(v =>
+      ${['dashboard','leads','queue','contacted','sequences','logs'].map(v =>
         `<button class="${state.view===v?'active':''}" onclick="setView('${v}')">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`
       ).join('')}
     </nav>
@@ -663,6 +663,69 @@ function render() {
     }
   }
 
+  // ─── CONTACTED ───
+  if(state.view==='contacted') {
+    const contacted = leads.filter(l => (l.total_msgs_sent||0) > 0 || l.last_msg_sent_at);
+    const isLocked = l => l.paused || ['dnc','dead','client','replied'].includes(l.stage);
+    const locked = contacted.filter(isLocked);
+    const active = contacted.filter(l => !isLocked(l));
+    const replied = contacted.filter(l => (l.total_replies||0) > 0);
+
+    html += `<div class="stats-row">
+      <div class="stat-card"><div class="label">Total contacted</div><div class="value">${contacted.length}</div></div>
+      <div class="stat-card" style="border-color:var(--green)"><div class="label">Replied</div><div class="value">${replied.length}</div></div>
+      <div class="stat-card" style="border-color:var(--orange)"><div class="label">Active (still in sequence)</div><div class="value">${active.length}</div></div>
+      <div class="stat-card" style="border-color:var(--text3)"><div class="label">Locked / DNC</div><div class="value">${locked.length}</div></div>
+    </div>`;
+
+    const filt = state.contactedFilter || 'all';
+    html += `<div class="toolbar">
+      <select onchange="state.contactedFilter=this.value;render()">
+        <option value="all" ${filt==='all'?'selected':''}>All contacted (${contacted.length})</option>
+        <option value="active" ${filt==='active'?'selected':''}>Active — at risk of re-send (${active.length})</option>
+        <option value="locked" ${filt==='locked'?'selected':''}>Locked / DNC (${locked.length})</option>
+        <option value="replied" ${filt==='replied'?'selected':''}>Replied (${replied.length})</option>
+      </select>
+      ${active.length ? `<button class="btn btn-danger" onclick="lockAllContacted()">🚫 Lock all ${active.length} active</button>` : ''}
+      <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
+    </div>`;
+
+    let rows = filt==='active' ? active : filt==='locked' ? locked : filt==='replied' ? replied : contacted;
+    rows = [...rows].sort((a,b) => new Date(b.last_msg_sent_at||0) - new Date(a.last_msg_sent_at||0));
+
+    if (!rows.length) {
+      html += `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">
+        ${contacted.length===0
+          ? 'No contacted leads yet. Once the sender successfully delivers a message, the lead will appear here.<br><br><span style="font-size:11px">Note: messages sent before commit c8c4c79 are not recorded due to a schema bug — those need to be marked manually if you want them locked.</span>'
+          : 'No leads in this view.'}
+      </div>`;
+    } else {
+      html += `<div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>Last msg</th><th>Sent</th><th>Replies</th><th>Stage</th><th>Status</th><th></th></tr></thead><tbody>`;
+      rows.forEach(l => {
+        const last = l.last_msg_sent_at ? relTime(l.last_msg_sent_at) : '—';
+        const lockState = isLocked(l)
+          ? `<span style="color:#888;font-size:10px;font-weight:700">LOCKED</span>`
+          : `<span style="color:#fbbf24;font-size:10px;font-weight:700">AT RISK</span>`;
+        const action = isLocked(l)
+          ? `<span class="muted" style="font-size:10px">—</span>`
+          : `<button onclick="event.stopPropagation();lockContacted('${l.id}')" style="background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:#fca5a5;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">🚫 Lock</button>`;
+        html += `<tr onclick="openLead('${l.id}')">
+          <td style="font-weight:600">${l.name}</td>
+          <td class="phone">${l.phone||'—'}</td>
+          <td class="muted">${l.restaurant_name||'—'}</td>
+          <td class="muted" style="font-size:11px">${last}</td>
+          <td class="muted" style="font-family:var(--mono)">${l.total_msgs_sent||0}</td>
+          <td class="muted" style="font-family:var(--mono);${(l.total_replies||0)>0?'color:#86efac':''}">${l.total_replies||0}</td>
+          <td>${badge(l.stage)}</td>
+          <td>${lockState}</td>
+          <td>${action}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+  }
+
   // ─── SEQUENCES ───
   if(state.view==='sequences') {
     html += `<h2 style="font-size:18px;font-weight:700;margin-bottom:20px;color:var(--gold)">Nurture sequences</h2>`;
@@ -832,6 +895,26 @@ window.doAddLead = function() {
 
 window.pauseLead = function(id) { updateLead(id, {paused: true}); };
 window.resumeLead = function(id) { updateLead(id, {paused: false}); };
+
+window.lockContacted = function(id) {
+  if (!confirm('Lock this lead?\n• stage → DNC\n• paused → true\n• next_send_at → null\nThe sender will never touch this lead again unless you manually unlock.')) return;
+  updateLead(id, {stage:'dnc', paused:true, next_send_at:null});
+};
+
+window.lockAllContacted = async function() {
+  const active = state.leads.filter(l =>
+    ((l.total_msgs_sent||0) > 0 || l.last_msg_sent_at) &&
+    !l.paused && !['dnc','dead','client','replied'].includes(l.stage)
+  );
+  if (!active.length) return showToast('Nothing to lock', 'error');
+  if (!confirm(`Lock ${active.length} contacted leads?\n• stage → DNC\n• paused → true\n• next_send_at → null\nReversible per-lead in the lead detail modal.`)) return;
+  try {
+    const ids = active.map(l => l.id).join(',');
+    await sb(`leads?id=in.(${ids})`, {method:'PATCH', body: JSON.stringify({stage:'dnc', paused:true, next_send_at:null})});
+    showToast(`Locked ${active.length} leads`);
+    loadAll();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
 
 window.openWAFor = function(id) {
   const lead = state.leads.find(l => l.id === id);
