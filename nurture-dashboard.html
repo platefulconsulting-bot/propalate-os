@@ -401,6 +401,23 @@ function badge(stage) {
   return `<span class="badge badge-${stage}">${s.label}</span>`;
 }
 
+// Human-friendly relative time, e.g. "in 2h", "3d ago", "due now"
+function relTime(then) {
+  const t = new Date(then), now = new Date();
+  const diff = t - now;
+  if (Math.abs(diff) < 60000) return diff > 0 ? 'due now' : 'just now';
+  const abs = Math.abs(diff);
+  if (abs < 3600000) { const m = Math.round(abs/60000); return diff > 0 ? `in ${m}m` : `${m}m ago`; }
+  if (abs < 86400000) { const h = Math.round(abs/3600000); return diff > 0 ? `in ${h}h` : `${h}h ago`; }
+  if (abs < 7*86400000) { const d = Math.round(abs/86400000); return diff > 0 ? `in ${d}d` : `${d}d ago`; }
+  return t.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+}
+
+function isSendable(l) {
+  return l.sequence_id && !l.paused && l.next_send_at &&
+         !['client','dead','dnc','replied'].includes(l.stage);
+}
+
 function filtered() {
   return state.leads.filter(l => {
     if(state.stageFilter!=='all' && l.stage!==state.stageFilter) return false;
@@ -459,7 +476,7 @@ function render() {
   html += `<header>
     <div><span class="logo">PFC</span><span class="logo"><span>Lead Nurture Engine</span></span></div>
     <nav>
-      ${['dashboard','leads','sequences','logs'].map(v =>
+      ${['dashboard','leads','queue','sequences','logs'].map(v =>
         `<button class="${state.view===v?'active':''}" onclick="setView('${v}')">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`
       ).join('')}
     </nav>
@@ -585,6 +602,67 @@ function render() {
     }
   }
 
+  // ─── QUEUE ───
+  if(state.view==='queue') {
+    const now = new Date();
+    const ONE_DAY = 24*3600*1000;
+    const sendable = leads.filter(isSendable);
+    const dueNow = sendable.filter(l => new Date(l.next_send_at) <= now);
+    const dueToday = sendable.filter(l => { const d = new Date(l.next_send_at) - now; return d > 0 && d <= ONE_DAY; });
+    const thisWeek = sendable.filter(l => { const d = new Date(l.next_send_at) - now; return d > ONE_DAY && d <= 7*ONE_DAY; });
+    const later = sendable.filter(l => new Date(l.next_send_at) - now > 7*ONE_DAY);
+    const pausedLeads = leads.filter(l => l.paused);
+
+    html += `<div class="stats-row">
+      <div class="stat-card" style="border-color:var(--red)"><div class="label">Due now</div><div class="value">${dueNow.length}</div></div>
+      <div class="stat-card" style="border-color:var(--orange)"><div class="label">Due in 24h</div><div class="value">${dueToday.length}</div></div>
+      <div class="stat-card" style="border-color:var(--blue)"><div class="label">This week</div><div class="value">${thisWeek.length}</div></div>
+      <div class="stat-card"><div class="label">Later</div><div class="value">${later.length}</div></div>
+      <div class="stat-card" style="border-color:var(--text3)"><div class="label">Paused</div><div class="value">${pausedLeads.length}</div></div>
+    </div>`;
+
+    const filt = state.queueFilter || 'sendable';
+    html += `<div class="toolbar">
+      <select onchange="state.queueFilter=this.value;render()">
+        <option value="sendable" ${filt==='sendable'?'selected':''}>Scheduled (${sendable.length})</option>
+        <option value="due" ${filt==='due'?'selected':''}>Due now (${dueNow.length})</option>
+        <option value="paused" ${filt==='paused'?'selected':''}>Paused (${pausedLeads.length})</option>
+      </select>
+      <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
+    </div>`;
+
+    let rows = filt === 'paused' ? pausedLeads : filt === 'due' ? dueNow : sendable;
+    rows = [...rows].sort((a,b) => new Date(a.next_send_at||0) - new Date(b.next_send_at||0));
+
+    if (!rows.length) {
+      html += `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">No leads in this view. Assign a sequence on the Leads tab to start scheduling.</div>`;
+    } else {
+      html += `<div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>Sequence</th><th>Step</th><th>Next send</th><th>Stage</th><th></th></tr></thead><tbody>`;
+      rows.forEach(l => {
+        const seq = seqs.find(s=>s.id===l.sequence_id);
+        const due = l.next_send_at && new Date(l.next_send_at) <= now;
+        const nextCell = l.next_send_at
+          ? `<span style="${due?'color:#fca5a5;font-weight:700':'color:var(--text2)'}">${relTime(l.next_send_at)}</span><span class="muted" style="font-size:10px;margin-left:6px">${new Date(l.next_send_at).toLocaleString('en-IN',{dateStyle:'short',timeStyle:'short'})}</span>`
+          : '<span class="muted">—</span>';
+        const action = l.paused
+          ? `<button onclick="event.stopPropagation();resumeLead('${l.id}')" style="background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);color:#86efac;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">▶ Resume</button>`
+          : `<button onclick="event.stopPropagation();pauseLead('${l.id}')" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.3);color:#fbbf24;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">⏸ Pause</button>`;
+        html += `<tr onclick="openLead('${l.id}')">
+          <td style="font-weight:600">${l.name}</td>
+          <td class="phone">${l.phone||'—'}</td>
+          <td class="muted">${l.restaurant_name||'—'}</td>
+          <td class="muted">${seq?.name||'—'}</td>
+          <td class="muted">${(l.sequence_step||0)+1}/${seq?.total_steps||'—'}</td>
+          <td>${nextCell}</td>
+          <td>${badge(l.stage)}</td>
+          <td>${action}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+  }
+
   // ─── SEQUENCES ───
   if(state.view==='sequences') {
     html += `<h2 style="font-size:18px;font-weight:700;margin-bottom:20px;color:var(--gold)">Nurture sequences</h2>`;
@@ -686,6 +764,10 @@ function render() {
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <button class="btn btn-primary" style="flex:1;padding:14px;min-width:100px" onclick="doUpdateLead('${l.id}')">Save</button>
           ${l.phone ? `<button class="btn" style="padding:14px 20px;background:rgba(74,222,128,0.15);color:#86efac;border:1px solid rgba(74,222,128,0.35)" onclick="openWAFor('${l.id}')">Message on WhatsApp</button>` : ''}
+          ${l.sequence_id ? (l.paused
+            ? `<button class="btn" style="padding:14px 20px;background:rgba(74,222,128,0.12);color:#86efac;border:1px solid rgba(74,222,128,0.3)" onclick="resumeLead('${l.id}')">▶ Resume sequence</button>`
+            : `<button class="btn" style="padding:14px 20px;background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.3)" onclick="pauseLead('${l.id}')">⏸ Pause sequence</button>`
+          ) : ''}
           <button class="btn btn-danger" style="padding:14px 20px" onclick="updateLead('${l.id}',{stage:'dnc',next_send_at:null})">Mark DNC</button>
         </div>
       </div>
@@ -747,6 +829,9 @@ window.doAddLead = function() {
     source:'manual',
   });
 };
+
+window.pauseLead = function(id) { updateLead(id, {paused: true}); };
+window.resumeLead = function(id) { updateLead(id, {paused: false}); };
 
 window.openWAFor = function(id) {
   const lead = state.leads.find(l => l.id === id);
