@@ -130,7 +130,7 @@ async function processLead(lead, sequencesById) {
       channel: 'whatsapp',
       status: result.status,
       message_body: result.body,
-      error_message: result.error || null,
+      error_msg: result.error || null,
       sent_at: new Date().toISOString(),
     })
   }).catch(e => console.error('send_log insert failed:', e.message));
@@ -154,9 +154,14 @@ async function processLead(lead, sequencesById) {
     last_msg_sent_at: new Date().toISOString(),
     next_send_at: nextSendAt,
     stage: lead.stage === 'queued' ? 'contacted' : lead.stage,
-    wa_status: 'sent',
   };
-  await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+  try {
+    await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+  } catch (e) {
+    console.error(`✗ FAILED TO ADVANCE lead ${lead.id} (${lead.name}) — pausing it to prevent re-send. Error:`, e.message);
+    try { await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ paused: true }) }); } catch (_) {}
+    return;
+  }
 
   dailyCount += 1;
   writeCap(dailyCount);
