@@ -196,6 +196,7 @@ let state = {
   toast: null,
   loading: false,
   password: 'pfc2026',
+  uploadMode: 'insert-only',
 };
 
 const STAGES = [
@@ -281,13 +282,30 @@ async function addLead(lead) {
   } catch(e) { showToast('Error: '+e.message, 'error'); }
 }
 
-async function bulkUpload(leads) {
+async function bulkUpload(leads, mode='insert-only') {
   try {
     const BATCH = 50;
-    for(let i=0; i<leads.length; i+=BATCH) {
-      await sb('leads?on_conflict=phone', {method:'POST', body: JSON.stringify(leads.slice(i,i+BATCH)), headers:{'Prefer':'return=minimal,resolution=merge-duplicates'}});
+    let toUpload = leads;
+    if (mode === 'insert-only') {
+      toUpload = leads.filter(l => !csvExisting.has(l.phone));
     }
-    showToast(leads.length+' rows processed (existing updated)');
+    if (!toUpload.length) {
+      showToast('Nothing new to upload', 'error');
+      return;
+    }
+    const resolution = mode === 'overwrite' ? 'merge-duplicates' : 'ignore-duplicates';
+    for(let i=0; i<toUpload.length; i+=BATCH) {
+      await sb('leads?on_conflict=phone', {
+        method:'POST',
+        body: JSON.stringify(toUpload.slice(i,i+BATCH)),
+        headers:{'Prefer':'return=minimal,resolution='+resolution}
+      });
+    }
+    const skipped = leads.length - toUpload.length;
+    const msg = mode === 'overwrite'
+      ? `${toUpload.length} rows uploaded (${skipped?skipped+' new + ':''}existing overwritten)`
+      : `${toUpload.length} new leads inserted${skipped?', '+skipped+' already existed (skipped)':''}`;
+    showToast(msg);
     state.showCSV = false;
     loadAll();
   } catch(e) { showToast('Upload error: '+e.message,'error'); }
@@ -771,6 +789,23 @@ let csvDropped = 0;
 let csvDuplicates = 0;
 let csvDroppedSamples = [];
 let csvDuplicateSamples = [];
+let csvExisting = new Set();
+let csvPreflightLoading = false;
+
+async function fetchExistingPhones(phones) {
+  if (!phones.length) return new Set();
+  const set = new Set();
+  const BATCH = 200;
+  for (let i = 0; i < phones.length; i += BATCH) {
+    const slice = phones.slice(i, i + BATCH);
+    const list = slice.map(p => encodeURIComponent('"' + p + '"')).join(',');
+    try {
+      const rows = await sb(`leads?select=phone&phone=in.(${list})`);
+      if (Array.isArray(rows)) rows.forEach(r => r.phone && set.add(r.phone));
+    } catch(e) { console.warn('preflight check failed for batch', i, e); }
+  }
+  return set;
+}
 
 function renderUploadPreview() {
   const prev = document.getElementById('csv-preview');
@@ -783,22 +818,46 @@ function renderUploadPreview() {
          </div>
        </details>`
     : '';
-  prev.innerHTML = `<div style="background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:13px;color:#86efac;font-weight:600">${csvParsed.length} unique leads ready to upload</div>
+  const existingCount = csvParsed.filter(r => csvExisting.has(r.phone)).length;
+  const newCount = csvParsed.length - existingCount;
+  const mode = state.uploadMode;
+  const willUploadCount = mode === 'overwrite' ? csvParsed.length : newCount;
+  const preflightBlock = csvPreflightLoading
+    ? `<div style="background:rgba(96,165,250,0.10);border:1px solid rgba(96,165,250,0.3);border-radius:8px;padding:8px 14px;margin:8px 0;font-size:12px;color:#93c5fd">Checking which phones already exist in the database…</div>`
+    : `<div style="background:rgba(74,222,128,0.10);border:1px solid rgba(74,222,128,0.3);border-radius:8px;padding:10px 16px;margin:8px 0;font-size:13px;color:#86efac">
+         <b>${newCount}</b> new · <b>${existingCount}</b> already in DB
+       </div>`;
+  prev.innerHTML = `<div style="background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:13px;color:#86efac;font-weight:600">${csvParsed.length} unique leads parsed</div>
     ${warnRow('row dropped (unrecognizable phone)', csvDropped, csvDroppedSamples, '248,113,113')}
     ${warnRow('duplicate phone collapsed', csvDuplicates, csvDuplicateSamples, '251,191,36')}
+    ${preflightBlock}
+    <label style="margin-top:4px">Mode</label>
+    <select id="csv-mode" onchange="state.uploadMode=this.value;renderUploadPreview()">
+      <option value="insert-only" ${mode==='insert-only'?'selected':''}>Insert only new (skip phones already in DB) — safe</option>
+      <option value="overwrite" ${mode==='overwrite'?'selected':''}>Insert + overwrite existing (resets stage, notes, sequence on existing leads)</option>
+    </select>
     <label>Assign to sequence:</label>
     <select id="csv-seq"><option value="">None (new leads only)</option>${state.sequences.map(s=>`<option value="${s.id}">${s.name} (${s.total_steps} steps)</option>`).join('')}</select>
     <div style="max-height:180px;overflow:auto;margin:12px 0;border:1px solid var(--border);border-radius:8px">
-      <table><thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>City</th></tr></thead><tbody>
-      ${csvParsed.slice(0,15).map(r=>`<tr><td>${r.name}</td><td class="phone">${r.phone}</td><td>${r.restaurant_name}</td><td>${r.city}</td></tr>`).join('')}
+      <table><thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>City</th><th>Status</th></tr></thead><tbody>
+      ${csvParsed.slice(0,15).map(r=>{
+        const exists = csvExisting.has(r.phone);
+        const tag = csvPreflightLoading ? '<span class="muted">…</span>' : (exists ? '<span style="color:#fbbf24;font-size:10px;font-weight:700">EXISTS</span>' : '<span style="color:#86efac;font-size:10px;font-weight:700">NEW</span>');
+        return `<tr><td>${r.name}</td><td class="phone">${r.phone}</td><td>${r.restaurant_name}</td><td>${r.city}</td><td>${tag}</td></tr>`;
+      }).join('')}
       </tbody></table>
       ${csvParsed.length>15?`<div style="padding:8px;text-align:center;font-size:11px;color:var(--text3)">...and ${csvParsed.length-15} more</div>`:''}
     </div>
-    <button class="btn btn-primary" style="width:100%;padding:14px" onclick="doCSVUpload()">Upload ${csvParsed.length} leads</button>`;
+    <button class="btn btn-primary" style="width:100%;padding:14px${csvPreflightLoading||willUploadCount===0?';opacity:0.5;pointer-events:none':''}" onclick="doCSVUpload()">${
+      csvPreflightLoading ? 'Checking…' :
+      mode === 'overwrite' ? `Upload ${csvParsed.length} rows (${existingCount} will overwrite)` :
+      willUploadCount === 0 ? 'Nothing new to upload' :
+      `Upload ${newCount} new leads${existingCount?' ('+existingCount+' skipped)':''}`
+    }</button>`;
 }
 
 function applyMapped(rows) {
-  csvDropped = 0; csvDuplicates = 0; csvDroppedSamples = []; csvDuplicateSamples = [];
+  csvDropped = 0; csvDuplicates = 0; csvDroppedSamples = []; csvDuplicateSamples = []; csvExisting = new Set();
   const seen = new Map();
   const kept = [];
   rows.forEach(raw => {
@@ -820,6 +879,20 @@ function applyMapped(rows) {
   csvParsed = kept;
 }
 
+async function runPreflight() {
+  csvExisting = new Set();
+  csvPreflightLoading = true;
+  renderUploadPreview();
+  try {
+    csvExisting = await fetchExistingPhones(csvParsed.map(r => r.phone));
+  } catch(e) {
+    console.warn('preflight failed', e);
+    showToast('Pre-flight check failed — uploading all rows', 'error');
+  }
+  csvPreflightLoading = false;
+  renderUploadPreview();
+}
+
 window.handleFile = function(input) {
   const file = input.files[0]; if(!file) return;
   const ext = (file.name.split('.').pop() || '').toLowerCase();
@@ -828,6 +901,7 @@ window.handleFile = function(input) {
     reader.onload = e => {
       applyMapped(parseCSV(e.target.result));
       renderUploadPreview();
+      runPreflight();
     };
     reader.readAsText(file);
   } else if (ext === 'xlsx' || ext === 'xls') {
@@ -839,6 +913,7 @@ window.handleFile = function(input) {
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }).map(normalizeRow);
         applyMapped(rows);
         renderUploadPreview();
+        runPreflight();
       } catch (err) {
         alert('Failed to parse Excel file: ' + err.message);
       }
@@ -857,7 +932,7 @@ window.doCSVUpload = function() {
     stage: seqId?'queued':'new',
     next_send_at: seqId? new Date().toISOString():null,
   }));
-  bulkUpload(leads);
+  bulkUpload(leads, state.uploadMode);
 };
 
 // INIT
