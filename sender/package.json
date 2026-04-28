@@ -1,0 +1,19 @@
+{
+  "name": "pfc-wa-sender",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Polls Supabase for due leads and sends WhatsApp messages via whatsapp-web.js",
+  "main": "sender.js",
+  "scripts": {
+    "start": "node sender.js",
+    "dry": "DRY_RUN=1 node sender.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.23.0"
+  }
+}

@@ -4,3 +4,9 @@ swiggy_credentials_48_accounts.csv
 .DS_Store
 Thumbs.db
 .claude/settings.local.json
+
+# WhatsApp sender (local-only secrets, browser session, runtime state)
+sender/.env
+sender/node_modules/
+sender/wa-session/
+sender/.daily-count.json
