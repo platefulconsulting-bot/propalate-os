@@ -476,7 +476,7 @@ function render() {
   html += `<header>
     <div><span class="logo">PFC</span><span class="logo"><span>Lead Nurture Engine</span></span></div>
     <nav>
-      ${['dashboard','leads','queue','contacted','incomplete','sequences','logs'].map(v =>
+      ${['dashboard','leads','queue','contacted','replied','incomplete','sequences','logs'].map(v =>
         `<button class="${state.view===v?'active':''}" onclick="setView('${v}')">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`
       ).join('')}
     </nav>
@@ -726,6 +726,91 @@ function render() {
     }
   }
 
+  // ─── REPLIED ───
+  if(state.view==='replied') {
+    // A lead is "in the replied inbox" if they've responded (total_replies>0 or stage=replied),
+    // OR they've already been classified (temperature set, or moved to client/dnc).
+    const inInbox = l =>
+      (l.total_replies||0) > 0
+      || l.stage === 'replied'
+      || l.stage === 'interested'
+      || l.stage === 'call_booked'
+      || l.stage === 'client'
+      || l.stage === 'dnc'
+      || l.temperature;
+    const all = leads.filter(inInbox);
+    const unsorted = all.filter(l => !l.temperature && !['client','dnc'].includes(l.stage));
+    const hot = all.filter(l => l.temperature === 'hot');
+    const warm = all.filter(l => l.temperature === 'warm');
+    const cold = all.filter(l => l.temperature === 'cold');
+    const converted = all.filter(l => l.stage === 'client');
+    const dnc = all.filter(l => l.stage === 'dnc');
+
+    html += `<div class="stats-row">
+      <div class="stat-card"><div class="label">All replies</div><div class="value">${all.length}</div></div>
+      <div class="stat-card" style="border-color:var(--orange)"><div class="label">Unsorted</div><div class="value">${unsorted.length}</div></div>
+      <div class="stat-card" style="border-color:#ef4444"><div class="label">🔥 Hot</div><div class="value">${hot.length}</div></div>
+      <div class="stat-card" style="border-color:var(--orange)"><div class="label">⚡ Warm</div><div class="value">${warm.length}</div></div>
+      <div class="stat-card" style="border-color:var(--blue)"><div class="label">❄ Cold</div><div class="value">${cold.length}</div></div>
+      <div class="stat-card" style="border-color:var(--green)"><div class="label">✓ Converted</div><div class="value">${converted.length}</div></div>
+      <div class="stat-card" style="border-color:var(--text3)"><div class="label">🚫 DNC</div><div class="value">${dnc.length}</div></div>
+    </div>`;
+
+    const filt = state.repliedFilter || 'unsorted';
+    const pill = (k, label, count, color) => `<button onclick="state.repliedFilter='${k}';render()" style="padding:8px 14px;border-radius:20px;border:1px solid ${filt===k?color:'var(--border)'};background:${filt===k?color+'22':'transparent'};color:${filt===k?color:'var(--text2)'};font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">${label} (${count})</button>`;
+    html += `<div class="toolbar" style="flex-wrap:wrap">
+      ${pill('unsorted','Unsorted',unsorted.length,'#fb923c')}
+      ${pill('hot','🔥 Hot',hot.length,'#ef4444')}
+      ${pill('warm','⚡ Warm',warm.length,'#fb923c')}
+      ${pill('cold','❄ Cold',cold.length,'#60a5fa')}
+      ${pill('converted','✓ Converted',converted.length,'#4ade80')}
+      ${pill('dnc','🚫 DNC',dnc.length,'#888888')}
+      ${pill('all','All',all.length,'#c9a84c')}
+      <button class="btn btn-outline" style="margin-left:auto" onclick="loadAll()">Refresh</button>
+    </div>`;
+
+    const map = { all, unsorted, hot, warm, cold, converted, dnc };
+    let rows = map[filt] || all;
+    rows = [...rows].sort((a,b) => new Date(b.last_reply_at || b.last_msg_sent_at || 0) - new Date(a.last_reply_at || a.last_msg_sent_at || 0));
+
+    if (!rows.length) {
+      html += `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">${
+        filt === 'unsorted'
+          ? 'Inbox empty. When a lead replies, mark stage = "replied" in the lead detail (or it will land here automatically once we wire the inbound webhook).'
+          : 'No leads in this view yet.'
+      }</div>`;
+    } else {
+      html += `<div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>Last reply</th><th>Temp</th><th>Stage</th><th>Quick actions</th></tr></thead><tbody>`;
+      rows.forEach(l => {
+        const last = l.last_reply_at ? relTime(l.last_reply_at) : (l.last_msg_sent_at ? `(sent ${relTime(l.last_msg_sent_at)})` : '—');
+        const tempIcon = l.temperature === 'hot' ? '🔥' : l.temperature === 'warm' ? '⚡' : l.temperature === 'cold' ? '❄' : '—';
+        const tempColor = l.temperature === 'hot' ? '#ef4444' : l.temperature === 'warm' ? '#fb923c' : l.temperature === 'cold' ? '#60a5fa' : 'var(--text3)';
+        const isLocked = l.stage === 'client' || l.stage === 'dnc';
+        const btn = (label, action, color) => `<button onclick="event.stopPropagation();${action}" title="${label}" style="background:${color}22;border:1px solid ${color}55;color:${color};border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">${label}</button>`;
+        const actions = isLocked
+          ? `<span class="muted" style="font-size:10px">locked — open lead to revert</span>`
+          : `<div style="display:flex;gap:4px;flex-wrap:wrap">
+              ${btn('🔥 Hot',  `setTemp('${l.id}','hot')`,   '#ef4444')}
+              ${btn('⚡ Warm', `setTemp('${l.id}','warm')`,  '#fb923c')}
+              ${btn('❄ Cold', `setTemp('${l.id}','cold')`,  '#60a5fa')}
+              ${btn('✓ Convert', `markConverted('${l.id}')`, '#4ade80')}
+              ${btn('🚫 DNC', `markDnc('${l.id}')`,          '#888888')}
+            </div>`;
+        html += `<tr onclick="openLead('${l.id}')">
+          <td style="font-weight:600">${l.name||'—'}</td>
+          <td class="phone">${l.phone||'—'}</td>
+          <td class="muted">${l.restaurant_name||'—'}</td>
+          <td class="muted" style="font-size:11px">${last}</td>
+          <td style="color:${tempColor};font-weight:700;font-size:14px">${tempIcon}</td>
+          <td>${badge(l.stage)}</td>
+          <td>${actions}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+  }
+
   // ─── INCOMPLETE ───
   if(state.view==='incomplete') {
     const isBlank = v => !v || !String(v).trim();
@@ -947,6 +1032,20 @@ window.doAddLead = function() {
 
 window.pauseLead = function(id) { updateLead(id, {paused: true}); };
 window.resumeLead = function(id) { updateLead(id, {paused: false}); };
+
+window.setTemp = function(id, temp) {
+  updateLead(id, { temperature: temp });
+};
+
+window.markConverted = function(id) {
+  if (!confirm('Mark as Converted (client)?\n• stage → client\n• paused → true\n• next_send_at → null\nThe sender will never touch this lead again unless you manually unlock.')) return;
+  updateLead(id, { stage: 'client', paused: true, next_send_at: null });
+};
+
+window.markDnc = function(id) {
+  if (!confirm('Mark as DNC?\n• stage → dnc\n• paused → true\n• next_send_at → null\nThe sender will never touch this lead again unless you manually unlock.')) return;
+  updateLead(id, { stage: 'dnc', paused: true, next_send_at: null });
+};
 
 window.deleteLead = async function(id, name) {
   if (!confirm(`Delete "${name}" permanently?\nThis removes the lead and any send_log rows for it. Cannot be undone.`)) return;
