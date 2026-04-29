@@ -1183,11 +1183,39 @@ window.lockAllContacted = async function() {
   } catch(e) { showToast('Error: '+e.message,'error'); }
 };
 
-window.openWAFor = function(id) {
+window.openWAFor = async function(id) {
   const lead = state.leads.find(l => l.id === id);
   if (!lead) return;
-  const url = waUrlFor(lead, fillWaTemplate(state.waTemplate, lead));
+  const body = fillWaTemplate(state.waTemplate, lead);
+  const url = waUrlFor(lead, body);
   if (!url) return showToast('No phone number on this lead', 'error');
+
+  // Mark as contacted immediately so the lead shifts to the Contacted tab
+  // and is invisible to the auto-sender's filter.
+  const updates = {
+    total_msgs_sent: (lead.total_msgs_sent || 0) + 1,
+    last_msg_sent_at: new Date().toISOString(),
+    paused: true,
+    next_send_at: null,
+  };
+  if (['new', 'queued'].includes(lead.stage)) updates.stage = 'contacted';
+
+  try {
+    await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    Object.assign(lead, updates); // local state mirror so UI reflects immediately
+    sb('send_log', { method: 'POST', body: JSON.stringify({
+      lead_id: lead.id,
+      channel: 'whatsapp',
+      status: 'sent',
+      message_body: body,
+      sent_at: new Date().toISOString(),
+    })}).catch(() => {});
+    showToast(`Marked as contacted — opening WhatsApp`);
+    render();
+  } catch (e) {
+    console.warn('Failed to mark contacted:', e);
+    showToast('Opened WhatsApp but DB update failed — check console', 'error');
+  }
   window.open(url, '_blank');
 };
 
