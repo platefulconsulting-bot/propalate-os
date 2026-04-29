@@ -158,7 +158,7 @@
   @keyframes load { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
 
   /* ── LOGIN ── */
-  #login-screen {
+  #login-screen, #change-pin-screen {
     position: fixed; inset: 0; background: var(--black);
     display: none; flex-direction: column; align-items: center;
     z-index: 9998; padding: 16px 16px 12px;
@@ -1403,6 +1403,39 @@
       <div class="pin-key enter" onclick="pinEnter()">GO</div>
     </div>
     <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- FORCE CHANGE PIN ON FIRST LOGIN -->
+<div id="change-pin-screen">
+  <div class="login-logo-wrap">
+    <div class="login-title">Welcome</div>
+    <div class="login-sub" id="changePinSubtitle">Set your personal PIN to continue</div>
+  </div>
+  <div style="flex:1"></div>
+  <div class="pin-section">
+    <div class="pin-label" id="changePinTitle">Set new PIN</div>
+    <div class="pin-dots">
+      <div class="pin-dot" id="cpd0"></div>
+      <div class="pin-dot" id="cpd1"></div>
+      <div class="pin-dot" id="cpd2"></div>
+      <div class="pin-dot" id="cpd3"></div>
+    </div>
+    <div class="pin-keypad">
+      <div class="pin-key" onclick="changePinPress('1')">1</div>
+      <div class="pin-key" onclick="changePinPress('2')">2</div>
+      <div class="pin-key" onclick="changePinPress('3')">3</div>
+      <div class="pin-key" onclick="changePinPress('4')">4</div>
+      <div class="pin-key" onclick="changePinPress('5')">5</div>
+      <div class="pin-key" onclick="changePinPress('6')">6</div>
+      <div class="pin-key" onclick="changePinPress('7')">7</div>
+      <div class="pin-key" onclick="changePinPress('8')">8</div>
+      <div class="pin-key" onclick="changePinPress('9')">9</div>
+      <div class="pin-key del" onclick="changePinDel()">⌫</div>
+      <div class="pin-key" onclick="changePinPress('0')">0</div>
+      <div class="pin-key enter" onclick="changePinSubmit()">GO</div>
+    </div>
+    <div class="login-error" id="changePinError"></div>
   </div>
 </div>
 
@@ -2821,6 +2854,10 @@ window.addEventListener('load', () => {
         if (_savedUser && _savedUser.id) {
           currentUser = _savedUser;
           if (window._initFCM) setTimeout(window._initFCM, 1000);
+          if (!currentUser.pinChanged) {
+            showChangePinScreen();
+            return;
+          }
           launchApp();
           return;
         }
@@ -2889,12 +2926,89 @@ function updatePinDots() {
   }
 }
 
+// ── FORCE CHANGE PIN (first login) ──────────────────────────────
+let changePinStep = 0;       // 1 = entering new, 2 = confirming
+let changePinBuffer = '';
+let changePinFirstAttempt = '';
+
+function showChangePinScreen() {
+  changePinStep = 1;
+  changePinBuffer = '';
+  changePinFirstAttempt = '';
+  updateChangePinDots();
+  const sub = document.getElementById('changePinSubtitle');
+  if (sub && currentUser) sub.textContent = `Welcome ${currentUser.name} — set a new PIN to continue`;
+  document.getElementById('changePinTitle').textContent = 'Set new PIN';
+  document.getElementById('changePinError').textContent = '';
+  document.getElementById('change-pin-screen').style.display = 'flex';
+}
+
+function changePinPress(d) {
+  if (changePinBuffer.length >= 4) return;
+  changePinBuffer += d;
+  updateChangePinDots();
+  if (changePinBuffer.length === 4) setTimeout(changePinSubmit, 150);
+}
+
+function changePinDel() { changePinBuffer = changePinBuffer.slice(0, -1); updateChangePinDots(); }
+
+function updateChangePinDots() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('cpd' + i).classList.toggle('filled', i < changePinBuffer.length);
+  }
+}
+
+function changePinSubmit() {
+  if (changePinBuffer.length !== 4) return;
+  const errEl = document.getElementById('changePinError');
+  const titleEl = document.getElementById('changePinTitle');
+
+  if (changePinStep === 1) {
+    if (changePinBuffer === currentUser.pin) {
+      errEl.textContent = 'New PIN must be different from your current one.';
+      changePinBuffer = ''; updateChangePinDots();
+      return;
+    }
+    changePinFirstAttempt = changePinBuffer;
+    changePinBuffer = ''; updateChangePinDots();
+    changePinStep = 2;
+    titleEl.textContent = 'Confirm new PIN';
+    errEl.textContent = '';
+    return;
+  }
+
+  // Step 2: confirm
+  if (changePinBuffer !== changePinFirstAttempt) {
+    errEl.textContent = 'PINs did not match. Start over.';
+    changePinBuffer = ''; changePinFirstAttempt = ''; changePinStep = 1;
+    updateChangePinDots();
+    titleEl.textContent = 'Set new PIN';
+    return;
+  }
+
+  // Persist
+  const newPin = changePinBuffer;
+  const u = (allUsers || []).find(x => x.id === currentUser.id);
+  if (u) { u.pin = newPin; u.pinChanged = true; }
+  currentUser.pin = newPin;
+  currentUser.pinChanged = true;
+  try { saveUsers(allUsers); } catch (e) { console.error('saveUsers failed:', e); }
+  localStorage.setItem('propalate_user', JSON.stringify(currentUser));
+  document.getElementById('change-pin-screen').style.display = 'none';
+  launchApp();
+}
+
 function pinEnter() {
   if (!selectedLoginUser) return;
   if (pinBuffer === selectedLoginUser.pin) {
     currentUser = selectedLoginUser;
     localStorage.setItem('propalate_user', JSON.stringify(currentUser));
     if (window._initFCM) setTimeout(window._initFCM, 1000);
+      if (!currentUser.pinChanged) {
+        document.getElementById('login-screen').style.display = 'none';
+        showChangePinScreen();
+        return;
+      }
       if (false) { // was: salesLoginMode - disabled to use normal landing
         openSalesLeadScreen(selectedLoginUser);
       } else {
