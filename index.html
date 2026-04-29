@@ -2820,7 +2820,7 @@ function saveUsers(users) {
       try {
         const { setDoc, doc } = window._fb;
         users.forEach(u => {
-          setDoc(doc(window._db, 'team_members', u.id), { name: u.name, emoji: u.emoji, role: u.role, pin: u.pin, level: u.level }).catch(e => console.error('Firestore user sync:', e));
+          setDoc(doc(window._db, 'team_members', u.id), { name: u.name, emoji: u.emoji, role: u.role, pin: u.pin, level: u.level, pinChanged: !!u.pinChanged }).catch(e => console.error('Firestore user sync:', e));
         });
       } catch(e) { console.error('Firestore users sync error:', e); }
     }
@@ -4082,7 +4082,7 @@ async function saveNewUser() {
     if (pin.length !== 4 || isNaN(pin)) { showToast('PIN must be 4 digits', 'error'); return; }
     if (allUsers.some(u => u.pin === pin)) { showToast('PIN already in use', 'error'); return; }
 
-    const newUser = { id: 'user_' + Date.now(), name, emoji, role, pin, level };
+    const newUser = { id: 'user_' + Date.now(), name, emoji, role, pin, level, pinChanged: false };
     allUsers.push(newUser);
     saveUsers(allUsers);
     closeModal('addUserModal');
@@ -4092,7 +4092,7 @@ async function saveNewUser() {
     if (window._dbReady) {
       try {
         const { setDoc, doc } = window._fb;
-        await setDoc(doc(window._db, 'team_members', newUser.id), { name, emoji, role, pin, level });
+        await setDoc(doc(window._db, 'team_members', newUser.id), { name, emoji, role, pin, level, pinChanged: false });
       } catch(e) { console.error('Firestore user save error:', e); }
     }
 }
@@ -6906,15 +6906,37 @@ function initOpsListeners() {
   onSnapshot(collection(db, 'team_members'), snap => {
     const fbUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (fbUsers.length > 0) {
+      // Preserve pinChanged from local cache if Firestore doc is missing it (older docs).
+      // Self-heal Firestore by writing it back when we have a local truth.
+      const localUsers = JSON.parse(localStorage.getItem('pos_users_v3') || '[]');
+      const localById = Object.fromEntries(localUsers.map(u => [u.id, u]));
+      const { setDoc, doc: fbDoc } = window._fb;
+      fbUsers.forEach(u => {
+        if (u.pinChanged === undefined) {
+          const lc = localById[u.id];
+          if (lc && lc.pinChanged !== undefined) {
+            u.pinChanged = lc.pinChanged;
+            setDoc(fbDoc(db, 'team_members', u.id), { name: u.name, emoji: u.emoji, role: u.role, pin: u.pin, level: u.level, pinChanged: u.pinChanged }).catch(()=>{});
+          }
+        }
+      });
       allUsers = fbUsers;
       localStorage.setItem('pos_users_v3', JSON.stringify(allUsers));
+      // Keep currentUser's pinChanged in sync with the latest Firestore truth so subsequent gates work.
+      if (currentUser) {
+        const me = allUsers.find(u => u.id === currentUser.id);
+        if (me && me.pinChanged !== currentUser.pinChanged) {
+          currentUser.pinChanged = me.pinChanged;
+          localStorage.setItem('propalate_user', JSON.stringify(currentUser));
+        }
+      }
       renderTeam();
       if (typeof renderUserManageList === 'function') renderUserManageList();
     } else if (allUsers.length > 0) {
       // Seed Firestore with existing localStorage users on first run
       const { setDoc, doc: fbDoc } = window._fb;
       allUsers.forEach(u => {
-        setDoc(fbDoc(db, 'team_members', u.id), { name: u.name, emoji: u.emoji, role: u.role, pin: u.pin, level: u.level }).catch(e => console.error('Seed user error:', e));
+        setDoc(fbDoc(db, 'team_members', u.id), { name: u.name, emoji: u.emoji, role: u.role, pin: u.pin, level: u.level, pinChanged: !!u.pinChanged }).catch(e => console.error('Seed user error:', e));
       });
     }
   });
