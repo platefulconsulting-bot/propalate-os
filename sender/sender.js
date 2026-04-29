@@ -76,9 +76,109 @@ client.on('qr', qr => {
   qrcode.generate(qr, { small: true });
 });
 client.on('authenticated', () => log('Authenticated. Session cached for next run.'));
-client.on('ready', () => { ready = true; log('WhatsApp client ready. Polling every', POLL_SEC, 'seconds.'); pollLoop(); });
+client.on('ready', () => { ready = true; log('WhatsApp client ready. Polling every', POLL_SEC, 'seconds. Listening for inbound replies.'); pollLoop(); });
 client.on('disconnected', r => { console.error('Disconnected:', r); process.exit(1); });
 client.on('auth_failure', m => { console.error('Auth failure:', m); process.exit(1); });
+
+// ── Inbound reply handler ─────────────────────────────────────────
+client.on('message', async msg => {
+  try {
+    if (msg.fromMe) return;
+    if (!msg.from || !msg.from.endsWith('@c.us')) return; // skip groups, status broadcasts, etc.
+    await handleInbound(msg);
+  } catch (e) {
+    console.error('inbound handler error:', e.message);
+  }
+});
+
+async function handleInbound(msg) {
+  const digits = msg.from.replace('@c.us', '');
+  const phone = '+' + digits;
+  const body = msg.body || '';
+  const ts = msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString();
+
+  const found = await sb(`leads?phone=eq.${encodeURIComponent(phone)}&limit=1`);
+  if (!found?.length) {
+    log(`📥 inbound from unknown ${phone}: "${body.slice(0, 60)}"`);
+    return;
+  }
+  const lead = found[0];
+
+  const cls = classify(body);
+  const updates = {
+    total_replies: (lead.total_replies || 0) + 1,
+    last_reply_at: ts,
+    paused: true,
+    next_send_at: null,
+  };
+  if (cls.dnc && lead.stage !== 'client') {
+    updates.stage = 'dnc';
+  } else if (['new', 'queued', 'contacted'].includes(lead.stage)) {
+    updates.stage = 'replied';
+  }
+  if (!lead.temperature && cls.temperature) {
+    updates.temperature = cls.temperature;
+  }
+
+  await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+
+  // Best-effort inbound log entry. Tolerated to fail if status='received' is not allowed.
+  sb('send_log', {
+    method: 'POST',
+    body: JSON.stringify({
+      lead_id: lead.id,
+      channel: 'whatsapp',
+      status: 'received',
+      message_body: body,
+      sent_at: ts,
+    })
+  }).catch(e => console.warn('inbound send_log insert failed:', e.message));
+
+  log(`📥 ${lead.name} (${phone}) → ${cls.label.toUpperCase()}: "${body.slice(0, 80)}"`);
+}
+
+// ── Reply classifier ──────────────────────────────────────────────
+// Returns { label, temperature?, dnc? }. Order matters: DNC > cold > hot > warm.
+function classify(text) {
+  const t = String(text || '').toLowerCase().trim();
+  if (!t) return { label: 'empty', temperature: 'warm' };
+
+  // DNC: abuse, strong rejection, legal, asking to stop. Triggers stage=dnc.
+  const dnc = [
+    /\b(fuck|bsdk|bc\b|mc\b|chutiya|gandu|bhosdike|behenchod|madarchod|maderchod)\b/,
+    /\b(stop\s+messag|block\s+me|don'?t\s+(message|contact|call|text)\s+me)\b/,
+    /\b(harassment|complaint|legal\s+action|police|fir)\b/,
+    /\b(mat\s+bhej(o|na)?|mat\s+karo|message\s+mat)\b/,
+    /\b(unsubscribe|opt\s*out|remove\s+me)\b/,
+  ];
+  if (dnc.some(re => re.test(t))) return { label: 'dnc', dnc: true };
+
+  // Cold: clear "not interested", busy-with-no-reschedule, dismissive.
+  const cold = [
+    /\b(not\s+interested|nahi\s+chahiye|nahin\s+chahiye|interested\s+nahi)\b/,
+    /\b(no\s+thanks?|nope|nahi|nahin)\s*$/i,
+    /^\s*(no|nahi|nahin)\s*[.!]?\s*$/,
+    /\b(busy\s+hu|abhi\s+free\s+nahi|baad\s+m?ein\s+dekhenge|kabhi\s+nahi)\b/,
+    /\b(bye|leave\s+me|chod\s+do)\b/,
+  ];
+  if (cold.some(re => re.test(t))) return { label: 'cold', temperature: 'cold' };
+
+  // Hot: clear interest, asking price, asking for call/demo, "let's do".
+  const hot = [
+    /\b(interested\s+(hu|hoon|hai)?|m?ein\s+interested)\b/,
+    /\b(call\s+(karo|kar\s+lo|me|kara|do)|kab\s+call|call\s+timing|callback)\b/,
+    /\b(price|kitne\s+ka|kitna\s+lagega|kitne\s+rupay|cost|charges?|fee|fees)\b/,
+    /\b(demo|meet(ing)?|details?\s+bhej(o|en)?|info\s+bhej)\b/,
+    /\blet'?s\s+(do|talk|meet|connect)\b/,
+    /\b(send\s+me|share\s+(details|info|brochure))\b/,
+    /\b(haan|haa|han|haanji|sure|okay|ok\s+(karo|kar\s+do|hai)|theek\s+hai|chalo)\s*[!.]?\s*$/i,
+    /^\s*(yes|haan|haa|sure|ok|okay)\s*[!.]?\s*$/i,
+  ];
+  if (hot.some(re => re.test(t))) return { label: 'hot', temperature: 'hot' };
+
+  // Default: warm — they engaged, intent unclear. Human should review.
+  return { label: 'warm', temperature: 'warm' };
+}
 
 // ── Send one lead ──────────────────────────────────────────────────
 async function sendOne(lead, step) {
