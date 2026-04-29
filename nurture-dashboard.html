@@ -476,7 +476,7 @@ function render() {
   html += `<header>
     <div><span class="logo">PFC</span><span class="logo"><span>Lead Nurture Engine</span></span></div>
     <nav>
-      ${['dashboard','leads','queue','contacted','sequences','logs'].map(v =>
+      ${['dashboard','leads','queue','contacted','incomplete','sequences','logs'].map(v =>
         `<button class="${state.view===v?'active':''}" onclick="setView('${v}')">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`
       ).join('')}
     </nav>
@@ -726,6 +726,58 @@ function render() {
     }
   }
 
+  // ─── INCOMPLETE ───
+  if(state.view==='incomplete') {
+    const isBlank = v => !v || !String(v).trim();
+    const incomplete = leads.filter(l => isBlank(l.name) && isBlank(l.restaurant_name));
+    const onlyName = leads.filter(l => isBlank(l.name) && !isBlank(l.restaurant_name));
+    const onlyRest = leads.filter(l => !isBlank(l.name) && isBlank(l.restaurant_name));
+
+    html += `<div class="stats-row">
+      <div class="stat-card" style="border-color:var(--red)"><div class="label">No name + no restaurant</div><div class="value">${incomplete.length}</div></div>
+      <div class="stat-card" style="border-color:var(--orange)"><div class="label">Missing name only</div><div class="value">${onlyName.length}</div></div>
+      <div class="stat-card" style="border-color:var(--orange)"><div class="label">Missing restaurant only</div><div class="value">${onlyRest.length}</div></div>
+      <div class="stat-card"><div class="label">Total leads</div><div class="value">${leads.length}</div></div>
+    </div>`;
+
+    const filt = state.incompleteFilter || 'both';
+    html += `<div class="toolbar">
+      <select onchange="state.incompleteFilter=this.value;render()">
+        <option value="both" ${filt==='both'?'selected':''}>Missing both name + restaurant (${incomplete.length})</option>
+        <option value="name" ${filt==='name'?'selected':''}>Missing name only (${onlyName.length})</option>
+        <option value="restaurant" ${filt==='restaurant'?'selected':''}>Missing restaurant only (${onlyRest.length})</option>
+      </select>
+      ${incomplete.length && filt==='both' ? `<button class="btn btn-danger" onclick="deleteAllIncomplete()">🗑 Delete all ${incomplete.length}</button>` : ''}
+      <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
+    </div>`;
+
+    const rows = filt==='name' ? onlyName : filt==='restaurant' ? onlyRest : incomplete;
+
+    if (!rows.length) {
+      html += `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">No incomplete leads in this view. Imports look clean.</div>`;
+    } else {
+      html += `<div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>City</th><th>Source</th><th>Created</th><th>Stage</th><th></th></tr></thead><tbody>`;
+      rows.slice(0, 200).forEach(l => {
+        const created = l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) : '—';
+        html += `<tr onclick="openLead('${l.id}')">
+          <td style="font-weight:600">${l.name || '<span class="muted">—</span>'}</td>
+          <td class="phone">${l.phone||'—'}</td>
+          <td class="muted">${l.restaurant_name || '<span style="color:var(--red)">—</span>'}</td>
+          <td class="muted">${l.city||'—'}</td>
+          <td class="muted" style="font-size:11px">${l.source||'—'}</td>
+          <td class="muted" style="font-size:11px">${created}</td>
+          <td>${badge(l.stage)}</td>
+          <td><button onclick="event.stopPropagation();deleteLead('${l.id}','${(l.name||l.phone||'this lead').replace(/'/g,'')}')" style="background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:#fca5a5;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">🗑 Delete</button></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+      if (rows.length > 200) {
+        html += `<div class="muted" style="text-align:center;padding:12px;font-size:11px">Showing first 200 of ${rows.length}. Bulk-delete to clear them, then re-load.</div>`;
+      }
+    }
+  }
+
   // ─── SEQUENCES ───
   if(state.view==='sequences') {
     html += `<h2 style="font-size:18px;font-weight:700;margin-bottom:20px;color:var(--gold)">Nurture sequences</h2>`;
@@ -895,6 +947,34 @@ window.doAddLead = function() {
 
 window.pauseLead = function(id) { updateLead(id, {paused: true}); };
 window.resumeLead = function(id) { updateLead(id, {paused: false}); };
+
+window.deleteLead = async function(id, name) {
+  if (!confirm(`Delete "${name}" permanently?\nThis removes the lead and any send_log rows for it. Cannot be undone.`)) return;
+  try {
+    await sb(`send_log?lead_id=eq.${id}`, {method:'DELETE'});
+    await sb(`leads?id=eq.${id}`, {method:'DELETE'});
+    showToast('Deleted');
+    loadAll();
+  } catch(e) { showToast('Delete failed: '+e.message,'error'); }
+};
+
+window.deleteAllIncomplete = async function() {
+  const isBlank = v => !v || !String(v).trim();
+  const targets = state.leads.filter(l => isBlank(l.name) && isBlank(l.restaurant_name));
+  if (!targets.length) return showToast('Nothing to delete','error');
+  if (!confirm(`Permanently DELETE ${targets.length} leads with no name and no restaurant?\nThis cannot be undone.`)) return;
+  try {
+    const ids = targets.map(l => l.id);
+    const BATCH = 100;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const slice = ids.slice(i, i + BATCH).join(',');
+      await sb(`send_log?lead_id=in.(${slice})`, {method:'DELETE'});
+      await sb(`leads?id=in.(${slice})`, {method:'DELETE'});
+    }
+    showToast(`Deleted ${targets.length} leads`);
+    loadAll();
+  } catch(e) { showToast('Bulk delete failed: '+e.message,'error'); }
+};
 
 window.lockContacted = function(id) {
   if (!confirm('Lock this lead?\n• stage → DNC\n• paused → true\n• next_send_at → null\nThe sender will never touch this lead again unless you manually unlock.')) return;
