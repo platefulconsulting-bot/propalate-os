@@ -197,6 +197,7 @@ let state = {
   loading: false,
   password: 'pfc2026',
   uploadMode: 'insert-only',
+  showContacted: false,
 };
 
 const STAGES = [
@@ -418,8 +419,11 @@ function isSendable(l) {
          !['client','dead','dnc','replied'].includes(l.stage);
 }
 
+function isContacted(l) { return (l.total_msgs_sent || 0) > 0 || !!l.last_msg_sent_at; }
+
 function filtered() {
   return state.leads.filter(l => {
+    if (!state.showContacted && isContacted(l)) return false;
     if(state.stageFilter!=='all' && l.stage!==state.stageFilter) return false;
     if(state.search) {
       const s = state.search.toLowerCase();
@@ -535,12 +539,15 @@ function render() {
 
   // ─── LEADS ───
   if(state.view==='leads') {
+    const visibleForCount = state.showContacted ? leads : leads.filter(l => !isContacted(l));
+    const hiddenContacted = leads.filter(isContacted).length;
     html += `<div class="toolbar">
       <input id="search-input" placeholder="Search name, phone, restaurant, city..." value="${state.search}" oninput="state.search=this.value;state.page=1;render()" />
       <select onchange="state.stageFilter=this.value;state.page=1;render()">
         <option value="all">All stages</option>
-        ${STAGES.map(s=>`<option value="${s.key}" ${state.stageFilter===s.key?'selected':''}>${s.label} (${leads.filter(l=>l.stage===s.key).length})</option>`).join('')}
+        ${STAGES.map(s=>`<option value="${s.key}" ${state.stageFilter===s.key?'selected':''}>${s.label} (${visibleForCount.filter(l=>l.stage===s.key).length})</option>`).join('')}
       </select>
+      <button class="btn btn-outline" style="${state.showContacted?'border-color:var(--gold);color:var(--gold)':''}" onclick="state.showContacted=!state.showContacted;state.page=1;render()">${state.showContacted ? 'Showing all leads' : `Fresh only (${hiddenContacted} contacted hidden)`}</button>
       ${state.stageFilter==='new' && seqs.length ? `<select onchange="if(this.value)bulkAssign(this.value);this.value='';" style="border-color:var(--gold);color:var(--gold)">
         <option value="" disabled selected>Bulk assign...</option>
         ${seqs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
