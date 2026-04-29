@@ -198,6 +198,7 @@ let state = {
   password: 'pfc2026',
   uploadMode: 'insert-only',
   showContacted: false,
+  uploadContext: 'leads',
 };
 
 const STAGES = [
@@ -420,9 +421,13 @@ function isSendable(l) {
 }
 
 function isContacted(l) { return (l.total_msgs_sent || 0) > 0 || !!l.last_msg_sent_at; }
+function isDirect(l) { const s = String(l.source||''); return s === 'direct' || s.startsWith('direct:'); }
 
-function filtered() {
+function filtered(scope) {
+  scope = scope || 'leads';
   return state.leads.filter(l => {
+    if (scope === 'leads' && isDirect(l)) return false;
+    if (scope === 'direct' && !isDirect(l)) return false;
     if (!state.showContacted && isContacted(l)) return false;
     if(state.stageFilter!=='all' && l.stage!==state.stageFilter) return false;
     if(state.search) {
@@ -480,7 +485,7 @@ function render() {
   html += `<header>
     <div><span class="logo">PFC</span><span class="logo"><span>Lead Nurture Engine</span></span></div>
     <nav>
-      ${['dashboard','leads','queue','contacted','replied','incomplete','sequences','logs'].map(v =>
+      ${['dashboard','leads','direct','queue','contacted','replied','incomplete','sequences','logs'].map(v =>
         `<button class="${state.view===v?'active':''}" onclick="setView('${v}')">${v.charAt(0).toUpperCase()+v.slice(1)}</button>`
       ).join('')}
     </nav>
@@ -606,6 +611,80 @@ function render() {
         ${pageBtn(state.page+1, 'Next ›', state.page===totalPages, false)}
         <span style="color:var(--text3);font-size:11px;margin-left:8px">Page ${state.page} of ${totalPages}</span>
       </div>`;
+    }
+  }
+
+  // ─── DIRECT LEADS ───
+  if(state.view==='direct') {
+    const direct = leads.filter(isDirect);
+    const visibleForCount = state.showContacted ? direct : direct.filter(l => !isContacted(l));
+    const hiddenContacted = direct.filter(isContacted).length;
+    const f = filtered('direct');
+
+    html += `<div class="toolbar">
+      <input id="search-input" placeholder="Search name, phone, restaurant, city..." value="${state.search}" oninput="state.search=this.value;state.page=1;render()" />
+      <select onchange="state.stageFilter=this.value;state.page=1;render()">
+        <option value="all">All stages</option>
+        ${STAGES.map(s=>`<option value="${s.key}" ${state.stageFilter===s.key?'selected':''}>${s.label} (${visibleForCount.filter(l=>l.stage===s.key).length})</option>`).join('')}
+      </select>
+      <button class="btn btn-outline" style="${state.showContacted?'border-color:var(--gold);color:var(--gold)':''}" onclick="state.showContacted=!state.showContacted;state.page=1;render()">${state.showContacted ? 'Showing all direct' : `Fresh only (${hiddenContacted} contacted hidden)`}</button>
+      ${state.stageFilter==='new' && seqs.length ? `<select onchange="if(this.value)bulkAssign(this.value);this.value='';" style="border-color:var(--gold);color:var(--gold)">
+        <option value="" disabled selected>Bulk assign...</option>
+        ${seqs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+      </select>` : ''}
+      <button class="btn btn-primary" onclick="state.uploadContext='direct';state.showCSV=true;render()">Upload direct sheet</button>
+      <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
+    </div>
+    <div class="muted" style="font-size:11px;margin-bottom:12px">Direct leads (source = direct) live in this tab only — they're hidden from the main Leads view and won't be auto-mixed with imports.</div>`;
+
+    if (!direct.length) {
+      html += `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">No direct leads yet. Click <b>Upload direct sheet</b> to add a curated list.</div>`;
+    } else {
+      const totalPages = Math.max(1, Math.ceil(f.length / state.perPage));
+      if (state.page > totalPages) state.page = totalPages;
+      if (state.page < 1) state.page = 1;
+      const pageStart = (state.page - 1) * state.perPage;
+      const pageEnd = Math.min(pageStart + state.perPage, f.length);
+      const pageRows = f.slice(pageStart, pageEnd);
+
+      html += `<div class="showing-info">Showing ${f.length ? pageStart+1 : 0}–${pageEnd} of ${f.length} direct leads</div>`;
+
+      html += `<div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>City</th><th>Source</th><th>Stage</th><th>Step</th><th>Next send</th></tr></thead>
+        <tbody>`;
+      pageRows.forEach(l => {
+        const seq = seqs.find(s=>s.id===l.sequence_id);
+        const next = l.next_send_at ? new Date(l.next_send_at).toLocaleString('en-IN',{dateStyle:'short',timeStyle:'short'}) : '—';
+        const waBtn = l.phone ? `<button onclick="event.stopPropagation();openWAFor('${l.id}')" title="Message on WhatsApp" style="margin-left:8px;background:rgba(74,222,128,0.12);border:1px solid rgba(74,222,128,0.3);color:#86efac;border-radius:6px;padding:2px 8px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">WA</button>` : '';
+        html += `<tr onclick="openLead('${l.id}')">
+          <td style="font-weight:600">${l.name||'—'}</td>
+          <td class="phone">${l.phone||'—'}${waBtn}</td>
+          <td class="muted">${l.restaurant_name||'—'}</td>
+          <td class="muted">${l.city||'—'}</td>
+          <td class="muted" style="font-size:11px">${l.source||'direct'}</td>
+          <td>${badge(l.stage)}</td>
+          <td class="muted">${l.sequence_step||0}/${seq?.total_steps||'—'}</td>
+          <td class="muted" style="font-size:11px">${next}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+
+      if (totalPages > 1) {
+        const pageBtn = (n, label, disabled, active) =>
+          `<button class="btn btn-outline" style="padding:6px 12px;${active?'border-color:var(--gold);color:var(--gold);':''}${disabled?'opacity:0.4;pointer-events:none;':''}" onclick="state.page=${n};render();window.scrollTo(0,0)">${label}</button>`;
+        const windowSize = 2;
+        const pages = [];
+        for (let i = 1; i <= totalPages; i++) {
+          if (i === 1 || i === totalPages || Math.abs(i - state.page) <= windowSize) pages.push(i);
+          else if (pages[pages.length-1] !== '…') pages.push('…');
+        }
+        html += `<div style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:16px;flex-wrap:wrap">
+          ${pageBtn(state.page-1, '‹ Prev', state.page===1, false)}
+          ${pages.map(p => p === '…' ? `<span style="color:var(--text3);padding:0 4px">…</span>` : pageBtn(p, String(p), false, p===state.page)).join('')}
+          ${pageBtn(state.page+1, 'Next ›', state.page===totalPages, false)}
+          <span style="color:var(--text3);font-size:11px;margin-left:8px">Page ${state.page} of ${totalPages}</span>
+        </div>`;
+      }
     }
   }
 
@@ -939,9 +1018,11 @@ function render() {
 
   // CSV / EXCEL UPLOAD
   if(state.showCSV) {
-    html += `<div class="overlay" onclick="state.showCSV=false;render()">
+    const isDirectUpload = state.uploadContext === 'direct';
+    html += `<div class="overlay" onclick="state.showCSV=false;state.uploadContext='leads';render()">
       <div class="modal" style="max-width:700px" onclick="event.stopPropagation()">
-        <h2>Upload CSV / Excel</h2>
+        <h2>${isDirectUpload ? 'Upload direct leads sheet' : 'Upload CSV / Excel'}</h2>
+        ${isDirectUpload ? `<div style="background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.3);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--gold)">Rows uploaded here are tagged <b>source = direct</b> and live only in the Direct tab.</div>` : ''}
         <input type="file" id="csv-file" accept=".csv,.xlsx,.xls" onchange="handleFile(this)" />
         <div class="muted" style="font-size:11px;margin:8px 0 12px">Accepts .csv, .xlsx, .xls. Required: name + phone. Common headers auto-map: Full name, Phone number, Restaurant / Cafe Name, City, Email, Campaign Name, etc.</div>
         <div id="csv-preview"></div>
@@ -1280,13 +1361,16 @@ window.handleFile = function(input) {
 
 window.doCSVUpload = function() {
   const seqId = document.getElementById('csv-seq')?.value;
+  const directMode = state.uploadContext === 'direct';
   const leads = csvParsed.map(l=>({
     ...l,
+    source: directMode ? (l.source && l.source !== 'csv' && !String(l.source).startsWith('ig:') ? 'direct:'+l.source : 'direct') : l.source,
     sequence_id: seqId||null,
     stage: seqId?'queued':'new',
     next_send_at: seqId? new Date().toISOString():null,
   }));
   bulkUpload(leads, state.uploadMode);
+  state.uploadContext = 'leads';
 };
 
 // INIT
