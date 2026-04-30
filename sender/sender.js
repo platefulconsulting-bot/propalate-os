@@ -153,6 +153,22 @@ client.on('message_create', async msg => {
 });
 
 async function handleOutboundManual(msg) {
+  // DEBUG: same dump for outbound so we can see why the lookup might miss.
+  try {
+    const c = await msg.getContact().catch(() => null);
+    const chat = await msg.getChat().catch(() => null);
+    log('🐛 outbound deep-debug:', JSON.stringify({
+      msg_from: msg.from, msg_to: msg.to, msg_fromMe: msg.fromMe,
+      msg_id: msg.id && (msg.id._serialized || msg.id.id),
+      contact_number: c && c.number,
+      contact_id: c && c.id && (c.id._serialized || c.id.user),
+      contact_pushname: c && c.pushname,
+      contact_isUser: c && c.isUser,
+      chat_id: chat && chat.id && (chat.id._serialized || chat.id.user),
+      chat_name: chat && chat.name,
+    }));
+  } catch (e) { log('🐛 outbound deep-debug failed:', e.message); }
+
   const phone = await resolvePhone(msg, msg.to);
   if (!phone) { log(`📤 manual outbound: could not resolve recipient phone (chatId=${msg.to})`); return; }
   const body = msg.body || '';
