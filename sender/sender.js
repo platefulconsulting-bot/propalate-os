@@ -108,23 +108,23 @@ function alreadyProcessed(msg) {
   return false;
 }
 
-// DEBUG: log every event so we can see what's actually firing on this session.
-['message', 'message_create', 'message_received', 'message_revoke_everyone', 'message_ack'].forEach(ev => {
-  client.on(ev, msg => {
-    try {
-      const dir = msg && msg.fromMe ? 'OUT' : 'IN';
-      const from = msg && msg.from;
-      const to = msg && msg.to;
-      const body = msg && msg.body;
-      log(`🐛 ${ev}  ${dir}  from=${from}  to=${to}  body="${String(body || '').slice(0, 50)}"`);
-    } catch (e) { log(`🐛 ${ev} (errored decoding):`, e.message); }
-  });
-});
+// Resolve a chatId to an E.164 phone. Handles @c.us (direct) and @lid (linked-id
+// privacy format) by falling back to getContact() which surfaces .number.
+async function resolvePhone(msg, chatId) {
+  if (chatId && chatId.endsWith('@c.us')) return '+' + chatId.replace('@c.us', '');
+  try {
+    const contact = await msg.getContact();
+    if (contact && contact.number) return '+' + String(contact.number).replace(/[^\d]/g, '');
+    if (contact && contact.id && contact.id.user) return '+' + contact.id.user;
+  } catch (e) { console.warn('getContact failed:', e.message); }
+  return null;
+}
 
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
-    if (!msg.from || !msg.from.endsWith('@c.us')) return; // 1-on-1 only
+    // Skip group / status / broadcast (chatId @g.us / status@broadcast).
+    if (!msg.from || msg.from.endsWith('@g.us') || msg.from.includes('status@broadcast')) return;
     if (alreadyProcessed(msg)) return;
     await handleInbound(msg);
   } catch (e) {
@@ -135,7 +135,7 @@ client.on('message', async msg => {
 client.on('message_create', async msg => {
   try {
     if (!msg.fromMe) return; // inbound goes through 'message'
-    if (!msg.to || !msg.to.endsWith('@c.us')) return;
+    if (!msg.to || msg.to.endsWith('@g.us') || msg.to.includes('status@broadcast')) return;
     if (recentlySent.has(recentKey(msg.to, msg.body))) return;
     if (alreadyProcessed(msg)) return;
     await handleOutboundManual(msg);
@@ -145,8 +145,8 @@ client.on('message_create', async msg => {
 });
 
 async function handleOutboundManual(msg) {
-  const digits = msg.to.replace('@c.us', '');
-  const phone = '+' + digits;
+  const phone = await resolvePhone(msg, msg.to);
+  if (!phone) { log(`📤 manual outbound: could not resolve recipient phone (chatId=${msg.to})`); return; }
   const body = msg.body || '';
   const ts = msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString();
 
@@ -183,8 +183,8 @@ async function handleOutboundManual(msg) {
 }
 
 async function handleInbound(msg) {
-  const digits = msg.from.replace('@c.us', '');
-  const phone = '+' + digits;
+  const phone = await resolvePhone(msg, msg.from);
+  if (!phone) { log(`📥 inbound: could not resolve sender phone (chatId=${msg.from})`); return; }
   const body = msg.body || '';
   const ts = msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString();
 
