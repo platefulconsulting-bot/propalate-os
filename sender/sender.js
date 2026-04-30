@@ -254,13 +254,13 @@ async function handleInbound(msg) {
 
   await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify(updates) });
 
-  // Best-effort inbound log entry. Tolerated to fail if status='received' is not allowed.
+  // Inbound log row. send_log_status_check accepts 'replied' for inbound (not 'received').
   sb('send_log', {
     method: 'POST',
     body: JSON.stringify({
       lead_id: lead.id,
       channel: 'whatsapp',
-      status: 'received',
+      status: 'replied',
       message_body: body,
       sent_at: ts,
     })

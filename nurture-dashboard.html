@@ -1492,7 +1492,7 @@
                     const isSelected = state.inboxLeadId === l.id;
                     const last = p.sent_at ? relTime(p.sent_at) : (l.last_msg_sent_at ? relTime(l.last_msg_sent_at) : '—');
                     const preview = p.message_body
-                      ? (p.status === 'received' ? '↩ ' : '') + String(p.message_body).slice(0, 60).replace(/\n/g, ' ')
+                      ? ((p.status === 'received' || p.status === 'replied') ? '↩ ' : '') + String(p.message_body).slice(0, 60).replace(/\n/g, ' ')
                       : `${l.total_msgs_sent || 0} sent · ${l.total_replies || 0} replies`;
                     const initial = (l.name || '?').trim().charAt(0).toUpperCase();
                     const tempBadge = l.temperature === 'hot' ? '🔥' : l.temperature === 'warm' ? '⚡' : l.temperature === 'cold' ? '❄' : '';
@@ -1819,7 +1819,7 @@
       if (chat === null) return '<div class="muted" style="text-align:center;padding:20px;font-size:12px">Loading conversation…</div>';
       if (chat.length === 0) return '<div class="muted" style="text-align:center;padding:20px;font-size:12px">No messages on record yet. Inbound replies and outbound sends will appear here once the worker logs them.</div>';
       return chat.map(m => {
-        const isInbound = m.status === 'received';
+        const isInbound = m.status === 'received' || m.status === 'replied';
         const isFailed = m.status === 'failed';
         const time = m.sent_at ? new Date(m.sent_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '';
         const align = isInbound ? 'flex-start' : 'flex-end';
