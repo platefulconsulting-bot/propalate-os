@@ -66,7 +66,10 @@ function render(tpl, lead) {
 // ── WhatsApp client ────────────────────────────────────────────────
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: path.join(__dirname, 'wa-session') }),
-  puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+  puppeteer: {
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    protocolTimeout: 300000, // 5 min — guards against slow inject on session restore
+  },
 });
 
 let ready = false;
