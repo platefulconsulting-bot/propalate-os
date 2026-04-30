@@ -760,6 +760,18 @@
       { key: 'dnc', label: 'DNC', color: '#dc2626' },
     ];
 
+    // ── Pain Point categories ──
+    // Standard tags users can pick from. "Other" lets them type a custom label,
+    // which is stored as "Other: <text>". Display logic below parses it back.
+    const PAIN_POINTS = [
+      'Low sales',
+      'Low payout',
+      'New Restaurant',
+      'Swiggy/Zomato POC communication',
+      'Overall management',
+      'Other',
+    ];
+
     // ── WhatsApp click-to-chat ──
     const DEFAULT_WA_TEMPLATE = `Hi {firstName}, this is from Plateful Consulting. We help restaurants like {restaurant} grow on Swiggy & Zomato. Do you have a minute to chat?`;
     state.waTemplate = localStorage.getItem('pfc_wa_template') || DEFAULT_WA_TEMPLATE;
@@ -1033,8 +1045,8 @@
       html += `<header>
     <div><span class="logo">PFC</span><span class="logo"><span>Lead Nurture Engine</span></span></div>
     <nav>
-      ${['dashboard', 'leads', 'direct', 'queue', 'contacted', 'replied', 'inbox', 'incomplete', 'sequences', 'logs'].map(v =>
-        `<button class="${state.view === v ? 'active' : ''}" onclick="setView('${v}')">${v.charAt(0).toUpperCase() + v.slice(1)}</button>`
+      ${['dashboard', 'leads', 'direct', 'queue', 'contacted', 'replied', 'inbox', 'incomplete', 'painpoints', 'logs'].map(v =>
+        `<button class="${state.view === v ? 'active' : ''}" onclick="setView('${v}')">${v === 'painpoints' ? 'Pain Points' : (v.charAt(0).toUpperCase() + v.slice(1))}</button>`
       ).join('')}
     </nav>
   </header>`;
@@ -1588,27 +1600,49 @@
         }
       }
 
-      // ─── SEQUENCES ───
-      if (state.view === 'sequences') {
-        html += `<h2 style="font-size:18px;font-weight:700;margin-bottom:20px;color:var(--gold)">Nurture sequences</h2>`;
-        seqs.forEach(seq => {
-          const n = leads.filter(l => l.sequence_id === seq.id).length;
-          html += `<div class="seq-card">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><h3>${seq.name}</h3><div class="desc">${seq.description || ''}</div></div>
-          <div style="display:flex;gap:12px;align-items:center">
-            <span class="muted" style="font-size:12px">${n} leads</span>
-            <span class="badge ${seq.is_active ? 'badge-replied' : 'badge-dead'}">${seq.is_active ? 'Active' : 'Paused'}</span>
-          </div>
-        </div>
-        <div class="seq-steps">
-          ${Array.from({ length: seq.total_steps }, (_, i) => i + 1).map(step => `<div class="step-pill"><div class="step-num">Step ${step}</div><div class="step-info">${step === 1 ? 'Immediate' : `+${Math.round(step * 2 - 1)}d`} | WA</div></div>`).join('')}
-        </div>
-      </div>`;
+      // ─── PAIN POINTS (replaces former Sequences view) ───
+      if (state.view === 'painpoints' || state.view === 'sequences') {
+        html += `<h2 style="font-size:18px;font-weight:700;margin-bottom:20px;color:var(--gold)">Pain Points</h2>`;
+
+        // Bucket leads by canonical pain point. "Other: <text>" rolls up into the Other bucket.
+        const bucket = {};
+        PAIN_POINTS.forEach(pp => bucket[pp] = []);
+        bucket['Untagged'] = [];
+        leads.forEach(l => {
+          const pp = l.pain_point;
+          if (!pp) bucket['Untagged'].push(l);
+          else if (String(pp).startsWith('Other:')) bucket['Other'].push(l);
+          else if (PAIN_POINTS.includes(pp)) bucket[pp].push(l);
+          else bucket['Other'].push(l); // legacy / unknown values
         });
+
+        // Stats row
+        html += `<div class="stats-row">`;
+        PAIN_POINTS.forEach(pp => {
+          html += `<div class="stat-card"><div class="label">${pp}</div><div class="value">${bucket[pp].length}</div></div>`;
+        });
+        html += `<div class="stat-card" style="border-color:var(--text3)"><div class="label">Untagged</div><div class="value">${bucket['Untagged'].length}</div></div>`;
+        html += `</div>`;
+
+        // List each bucket with sample leads
+        PAIN_POINTS.forEach(pp => {
+          const ls = bucket[pp];
+          if (!ls.length) return;
+          html += `<div class="seq-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <h3>${pp}</h3>
+              <span class="muted" style="font-size:12px">${ls.length} lead${ls.length === 1 ? '' : 's'}</span>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              ${ls.slice(0, 30).map(l => `<span onclick="openLead('${l.id}')" style="cursor:pointer;padding:4px 10px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);font-size:11px;color:var(--text2)">${l.name || '(no name)'}${pp === 'Other' && String(l.pain_point).startsWith('Other:') ? ' — ' + escAttr(String(l.pain_point).slice(6).trim()) : ''}</span>`).join('')}
+              ${ls.length > 30 ? `<span class="muted" style="font-size:11px;padding:4px 10px">+${ls.length - 30} more</span>` : ''}
+            </div>
+          </div>`;
+        });
+
         html += `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:16px;font-size:12px;color:var(--text2)">
-      Templates are pre-loaded with PFC Hinglish messages. Edit in Supabase → Table Editor → sequence_steps.
-    </div>`;
+          Pain points are tags you assign on each lead's detail modal. They categorise *why* the lead might engage — separate from messaging mechanics. Filter and bulk-tag features can be added if you want them.
+        </div>`;
       }
 
       // ─── LOGS ───
@@ -1686,7 +1720,17 @@
         </div>
         <div class="grid2">
           <div><label>Stage</label><select id="ld-stage">${STAGES.map(s => `<option value="${s.key}" ${l.stage === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}</select></div>
-          <div><label>Sequence</label><select id="ld-seq"><option value="">None</option>${seqs.map(s => `<option value="${s.id}" ${l.sequence_id === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}</select></div>
+          <div>
+            <label>Pain Point</label>
+            <select id="ld-pain" onchange="document.getElementById('ld-pain-other').style.display = this.value==='Other' ? 'block' : 'none'">
+              <option value="">None</option>
+              ${PAIN_POINTS.map(pp => {
+                const selected = l.pain_point && (l.pain_point === pp || (pp === 'Other' && String(l.pain_point).startsWith('Other:'))) ? 'selected' : '';
+                return `<option value="${pp}" ${selected}>${pp}</option>`;
+              }).join('')}
+            </select>
+            <input id="ld-pain-other" type="text" placeholder="Type custom pain point..." value="${escAttr(String(l.pain_point || '').startsWith('Other:') ? String(l.pain_point).slice(6).trim() : '')}" style="display:${String(l.pain_point || '').startsWith('Other:') ? 'block' : 'none'};margin-top:6px">
+          </div>
         </div>
         <label>Notes</label><textarea id="ld-notes">${escAttr(l.notes || '')}</textarea>
         <label style="display:flex;justify-content:space-between;align-items:center"><span>Custom WhatsApp template <span class="muted" style="font-size:10px;font-weight:400">(overrides sequence step for this lead — placeholders {{name}}, {{restaurant_name}}, {{city}}, {{swiggy_rating}}, {{zomato_rating}})</span></span>${l.custom_template ? '<span style="font-size:10px;font-weight:700;color:#c9a84c">CUSTOM ACTIVE</span>' : ''}</label>
@@ -2001,20 +2045,19 @@
 
     window.doUpdateLead = function (id) {
       const stage = document.getElementById('ld-stage')?.value;
-      const seqId = document.getElementById('ld-seq')?.value;
+      const painPick = document.getElementById('ld-pain')?.value || '';
+      const painOther = (document.getElementById('ld-pain-other')?.value || '').trim();
       const notes = document.getElementById('ld-notes')?.value;
       const tplRaw = document.getElementById('ld-tpl')?.value;
-      const lead = state.leads.find(l => l.id === id);
+      let painPoint = null;
+      if (painPick === 'Other') painPoint = painOther ? `Other: ${painOther}` : 'Other';
+      else if (painPick) painPoint = painPick;
       const updates = {
         stage,
         notes,
-        sequence_id: seqId || null,
+        pain_point: painPoint,
         custom_template: (tplRaw && tplRaw.trim()) ? tplRaw : null,
       };
-      if (seqId && seqId !== lead.sequence_id) {
-        updates.sequence_step = 0;
-        updates.next_send_at = new Date().toISOString();
-      }
       updateLead(id, updates);
     };
 
