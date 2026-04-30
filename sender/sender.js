@@ -80,16 +80,71 @@ client.on('ready', () => { ready = true; log('WhatsApp client ready. Polling eve
 client.on('disconnected', r => { console.error('Disconnected:', r); process.exit(1); });
 client.on('auth_failure', m => { console.error('Auth failure:', m); process.exit(1); });
 
-// ── Inbound reply handler ─────────────────────────────────────────
-client.on('message', async msg => {
+// ── Recent-send dedup so worker-originated messages don't get double-logged
+//    when the message_create event fires for them.
+const recentlySent = new Set();
+function recentKey(chatId, body) { return chatId + '|' + String(body || '').slice(0, 200); }
+function markRecentSend(chatId, body) {
+  const key = recentKey(chatId, body);
+  recentlySent.add(key);
+  setTimeout(() => recentlySent.delete(key), 30000);
+}
+
+// ── Single message listener: catches inbound replies AND outbound messages
+//    sent from any linked device (the phone, WhatsApp Web on a laptop, etc.).
+//    Worker's own sends are excluded via recentlySent so they don't double-log.
+client.on('message_create', async msg => {
   try {
-    if (msg.fromMe) return;
-    if (!msg.from || !msg.from.endsWith('@c.us')) return; // skip groups, status broadcasts, etc.
-    await handleInbound(msg);
+    if (msg.fromMe) {
+      if (!msg.to || !msg.to.endsWith('@c.us')) return;
+      if (recentlySent.has(recentKey(msg.to, msg.body))) return;
+      await handleOutboundManual(msg);
+    } else {
+      if (!msg.from || !msg.from.endsWith('@c.us')) return;
+      await handleInbound(msg);
+    }
   } catch (e) {
-    console.error('inbound handler error:', e.message);
+    console.error('message_create handler error:', e.message);
   }
 });
+
+async function handleOutboundManual(msg) {
+  const digits = msg.to.replace('@c.us', '');
+  const phone = '+' + digits;
+  const body = msg.body || '';
+  const ts = msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString();
+
+  const found = await sb(`leads?phone=eq.${encodeURIComponent(phone)}&limit=1`);
+  if (!found?.length) {
+    log(`📤 manual outbound to unknown ${phone}: "${body.slice(0, 60)}"`);
+    return;
+  }
+  const lead = found[0];
+
+  sb('send_log', {
+    method: 'POST',
+    body: JSON.stringify({
+      lead_id: lead.id,
+      channel: 'whatsapp',
+      status: 'sent',
+      message_body: body,
+      sent_at: ts,
+    })
+  }).catch(e => console.warn('manual outbound send_log insert failed:', e.message));
+
+  const updates = {
+    total_msgs_sent: (lead.total_msgs_sent || 0) + 1,
+    last_msg_sent_at: ts,
+    paused: true,
+    next_send_at: null,
+  };
+  if (['new', 'queued'].includes(lead.stage)) updates.stage = 'contacted';
+
+  await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+    .catch(e => console.warn('manual outbound lead patch failed:', e.message));
+
+  log(`📤 ${lead.name} (${phone}) — manual: "${body.slice(0, 80)}"`);
+}
 
 async function handleInbound(msg) {
   const digits = msg.from.replace('@c.us', '');
@@ -201,6 +256,8 @@ async function sendOne(lead, step) {
   catch (e) { return { status: 'failed', error: 'isRegistered check failed: ' + e.message, body }; }
   if (!isReg) return { status: 'failed', error: 'Number not on WhatsApp', body };
 
+  // Mark this exact send so the message_create listener skips it (we log it ourselves below).
+  markRecentSend(chatId, body);
   await client.sendMessage(chatId, body);
   return { status: 'sent', body };
 }
