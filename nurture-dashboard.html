@@ -1374,11 +1374,12 @@
           || l.stage === 'dnc'
           || l.temperature;
         const all = leads.filter(inInbox);
-        const unsorted = all.filter(l => !l.temperature && !['client', 'dnc'].includes(l.stage));
+        const unsorted = all.filter(l => !l.temperature && !['client', 'dnc', 'call_booked'].includes(l.stage));
         const hot = all.filter(l => l.temperature === 'hot');
         const warm = all.filter(l => l.temperature === 'warm');
         const cold = all.filter(l => l.temperature === 'cold');
-        const converted = all.filter(l => l.stage === 'client');
+        const booked = all.filter(l => l.stage === 'call_booked');
+        const closed = all.filter(l => l.stage === 'client');
         const dnc = all.filter(l => l.stage === 'dnc');
 
         html += `<div class="stats-row">
@@ -1387,7 +1388,8 @@
       <div class="stat-card" style="border-color:#ef4444"><div class="label">🔥 Hot</div><div class="value">${hot.length}</div></div>
       <div class="stat-card" style="border-color:var(--orange)"><div class="label">⚡ Warm</div><div class="value">${warm.length}</div></div>
       <div class="stat-card" style="border-color:var(--blue)"><div class="label">❄ Cold</div><div class="value">${cold.length}</div></div>
-      <div class="stat-card" style="border-color:var(--green)"><div class="label">✓ Converted</div><div class="value">${converted.length}</div></div>
+      <div class="stat-card" style="border-color:#a78bfa"><div class="label">📅 Booked</div><div class="value">${booked.length}</div></div>
+      <div class="stat-card" style="border-color:var(--green)"><div class="label">✓ Closed</div><div class="value">${closed.length}</div></div>
       <div class="stat-card" style="border-color:var(--text3)"><div class="label">🚫 DNC</div><div class="value">${dnc.length}</div></div>
     </div>`;
 
@@ -1398,13 +1400,14 @@
       ${pill('hot', '🔥 Hot', hot.length, '#ef4444')}
       ${pill('warm', '⚡ Warm', warm.length, '#fb923c')}
       ${pill('cold', '❄ Cold', cold.length, '#60a5fa')}
-      ${pill('converted', '✓ Converted', converted.length, '#4ade80')}
+      ${pill('booked', '📅 Booked', booked.length, '#a78bfa')}
+      ${pill('closed', '✓ Closed', closed.length, '#4ade80')}
       ${pill('dnc', '🚫 DNC', dnc.length, '#888888')}
       ${pill('all', 'All', all.length, '#c9a84c')}
       <button class="btn btn-outline" style="margin-left:auto" onclick="loadAll()">Refresh</button>
     </div>`;
 
-        const map = { all, unsorted, hot, warm, cold, converted, dnc };
+        const map = { all, unsorted, hot, warm, cold, booked, closed, dnc };
         let rows = map[filt] || all;
         rows = [...rows].sort((a, b) => new Date(b.last_reply_at || b.last_msg_sent_at || 0) - new Date(a.last_reply_at || a.last_msg_sent_at || 0));
 
@@ -1428,7 +1431,8 @@
               ${btn('🔥 Hot', `setTemp('${l.id}','hot')`, '#ef4444')}
               ${btn('⚡ Warm', `setTemp('${l.id}','warm')`, '#fb923c')}
               ${btn('❄ Cold', `setTemp('${l.id}','cold')`, '#60a5fa')}
-              ${btn('✓ Convert', `markConverted('${l.id}')`, '#4ade80')}
+              ${btn('📅 Book', `markBooked('${l.id}')`, '#a78bfa')}
+              ${btn('✓ Closed', `markConverted('${l.id}')`, '#4ade80')}
               ${btn('🚫 DNC', `markDnc('${l.id}')`, '#888888')}
             </div>`;
             html += `<tr onclick="openLead('${l.id}')">
@@ -1858,6 +1862,11 @@
 
     window.setTemp = function (id, temp) {
       updateLead(id, { temperature: temp });
+    };
+
+    window.markBooked = function (id) {
+      if (!confirm('Mark as Call Booked?\n• stage → call_booked\n• paused → true\n• next_send_at → null\nCan still be promoted to ✓ Closed or downgraded later.')) return;
+      updateLead(id, { stage: 'call_booked', paused: true, next_send_at: null });
     };
 
     window.markConverted = function (id) {
