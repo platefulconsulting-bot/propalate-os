@@ -105,6 +105,19 @@ function alreadyProcessed(msg) {
   return false;
 }
 
+// DEBUG: log every event so we can see what's actually firing on this session.
+['message', 'message_create', 'message_received', 'message_revoke_everyone', 'message_ack'].forEach(ev => {
+  client.on(ev, msg => {
+    try {
+      const dir = msg && msg.fromMe ? 'OUT' : 'IN';
+      const from = msg && msg.from;
+      const to = msg && msg.to;
+      const body = msg && msg.body;
+      log(`🐛 ${ev}  ${dir}  from=${from}  to=${to}  body="${String(body || '').slice(0, 50)}"`);
+    } catch (e) { log(`🐛 ${ev} (errored decoding):`, e.message); }
+  });
+});
+
 client.on('message', async msg => {
   try {
     if (msg.fromMe) return;
