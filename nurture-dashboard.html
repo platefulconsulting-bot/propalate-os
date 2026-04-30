@@ -1057,6 +1057,7 @@ function render() {
             : `<button class="btn" style="padding:14px 20px;background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.3)" onclick="pauseLead('${l.id}')">⏸ Pause sequence</button>`
           ) : ''}
           <button class="btn btn-danger" style="padding:14px 20px" onclick="updateLead('${l.id}',{stage:'dnc',next_send_at:null})">Mark DNC</button>
+          <button class="btn btn-danger" style="padding:14px 20px;background:rgba(248,113,113,0.2);border-color:rgba(248,113,113,0.5)" onclick="deleteLead('${l.id}','${(l.name||l.phone||'this lead').replace(/'/g,'')}')">🗑 Delete</button>
         </div>
       </div>
     </div>`;
@@ -1141,6 +1142,7 @@ window.deleteLead = async function(id, name) {
     await sb(`send_log?lead_id=eq.${id}`, {method:'DELETE'});
     await sb(`leads?id=eq.${id}`, {method:'DELETE'});
     showToast('Deleted');
+    state.selectedLead = null;
     loadAll();
   } catch(e) { showToast('Delete failed: '+e.message,'error'); }
 };
