@@ -90,21 +90,41 @@ function markRecentSend(chatId, body) {
   setTimeout(() => recentlySent.delete(key), 30000);
 }
 
-// ── Single message listener: catches inbound replies AND outbound messages
-//    sent from any linked device (the phone, WhatsApp Web on a laptop, etc.).
-//    Worker's own sends are excluded via recentlySent so they don't double-log.
+// ── Two listeners with complementary coverage:
+//    'message' fires reliably for INBOUND only — primary path for replies.
+//    'message_create' fires for OUTBOUND from any linked device (phone, WA Web)
+//      — used to capture manual sends. Worker's own sends are excluded via recentlySent.
+//    A processedIds set protects against the rare case where both events fire for
+//    the same physical message.
+const processedIds = new Set();
+function alreadyProcessed(msg) {
+  const id = (msg.id && (msg.id._serialized || msg.id.id)) || (msg.from + '|' + msg.timestamp + '|' + (msg.body || '').slice(0, 50));
+  if (processedIds.has(id)) return true;
+  processedIds.add(id);
+  setTimeout(() => processedIds.delete(id), 60000);
+  return false;
+}
+
+client.on('message', async msg => {
+  try {
+    if (msg.fromMe) return;
+    if (!msg.from || !msg.from.endsWith('@c.us')) return; // 1-on-1 only
+    if (alreadyProcessed(msg)) return;
+    await handleInbound(msg);
+  } catch (e) {
+    console.error('inbound (message) handler error:', e.message);
+  }
+});
+
 client.on('message_create', async msg => {
   try {
-    if (msg.fromMe) {
-      if (!msg.to || !msg.to.endsWith('@c.us')) return;
-      if (recentlySent.has(recentKey(msg.to, msg.body))) return;
-      await handleOutboundManual(msg);
-    } else {
-      if (!msg.from || !msg.from.endsWith('@c.us')) return;
-      await handleInbound(msg);
-    }
+    if (!msg.fromMe) return; // inbound goes through 'message'
+    if (!msg.to || !msg.to.endsWith('@c.us')) return;
+    if (recentlySent.has(recentKey(msg.to, msg.body))) return;
+    if (alreadyProcessed(msg)) return;
+    await handleOutboundManual(msg);
   } catch (e) {
-    console.error('message_create handler error:', e.message);
+    console.error('outbound (message_create) handler error:', e.message);
   }
 });
 
