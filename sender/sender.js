@@ -84,13 +84,30 @@ client.on('disconnected', r => { console.error('Disconnected:', r); process.exit
 client.on('auth_failure', m => { console.error('Auth failure:', m); process.exit(1); });
 
 // ── Recent-send dedup so worker-originated messages don't get double-logged
-//    when the message_create event fires for them.
+//    (or worse, echoed back as 'inbound' through linked-device sync, which then
+//    makes the auto-classifier label every contacted lead as 'warm').
 const recentlySent = new Set();
 function recentKey(chatId, body) { return chatId + '|' + String(body || '').slice(0, 200); }
 function markRecentSend(chatId, body) {
   const key = recentKey(chatId, body);
   recentlySent.add(key);
-  setTimeout(() => recentlySent.delete(key), 30000);
+  setTimeout(() => recentlySent.delete(key), 60000); // 60s — wider window for slow echo
+}
+
+// True iff this message originated from this account (regardless of @lid quirks).
+// msg.fromMe is sometimes false for our own sends in linked-device mode, so we
+// also check msg.id._serialized which is reliably "true_..." for outbound.
+function isOutboundMsg(msg) {
+  if (msg && msg.fromMe === true) return true;
+  const sid = msg && msg.id && msg.id._serialized;
+  if (typeof sid === 'string' && sid.startsWith('true_')) return true;
+  return false;
+}
+
+// True iff the body matches something the worker just sent on the same chat.
+// Used as a last-line defence against own-outbound echoing back as inbound.
+function isRecentSelfEcho(chatId, body) {
+  return recentlySent.has(recentKey(chatId, body));
 }
 
 // ── Two listeners with complementary coverage:
@@ -130,9 +147,9 @@ async function resolvePhone(msg, chatId) {
 
 client.on('message', async msg => {
   try {
-    if (msg.fromMe) return;
-    // Skip group / status / broadcast (chatId @g.us / status@broadcast).
+    if (isOutboundMsg(msg)) return; // strict: ignore our own sends echoed back
     if (!msg.from || msg.from.endsWith('@g.us') || msg.from.includes('status@broadcast')) return;
+    if (isRecentSelfEcho(msg.from, msg.body)) return; // body matches a recent worker send
     if (alreadyProcessed(msg)) return;
     await handleInbound(msg);
   } catch (e) {
@@ -142,9 +159,9 @@ client.on('message', async msg => {
 
 client.on('message_create', async msg => {
   try {
-    if (!msg.fromMe) return; // inbound goes through 'message'
+    if (!isOutboundMsg(msg)) return; // inbound goes through 'message'
     if (!msg.to || msg.to.endsWith('@g.us') || msg.to.includes('status@broadcast')) return;
-    if (recentlySent.has(recentKey(msg.to, msg.body))) return;
+    if (isRecentSelfEcho(msg.to, msg.body)) return; // worker's own send, already logged
     if (alreadyProcessed(msg)) return;
     await handleOutboundManual(msg);
   } catch (e) {
