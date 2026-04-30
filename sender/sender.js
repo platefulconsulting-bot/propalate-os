@@ -185,7 +185,11 @@ async function sendOne(lead, step) {
   const digits = String(lead.phone || '').replace(/[^\d]/g, '');
   if (!digits) return { status: 'failed', error: 'No phone' };
   const chatId = digits + '@c.us';
-  const body = render(step.template, lead);
+  // Per-lead override beats sequence step template.
+  const tpl = (lead.custom_template && String(lead.custom_template).trim())
+    ? lead.custom_template
+    : step.template;
+  const body = render(tpl, lead);
 
   if (DRY_RUN) {
     log(`[DRY-RUN] ${lead.name} (${lead.phone}) → ${body.slice(0, 80)}…`);

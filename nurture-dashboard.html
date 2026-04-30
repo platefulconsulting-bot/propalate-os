@@ -560,6 +560,7 @@ function render() {
       <button class="btn btn-primary" onclick="state.showAddLead=true;render()">+ Add lead</button>
       <button class="btn btn-outline" onclick="state.showCSV=true;render()">Upload CSV / Excel</button>
       <button class="btn btn-outline" onclick="state.showWaTemplate=true;render()">WA Template</button>
+      <button class="btn btn-outline" onclick="exportLeads()">Export XLSX</button>
       <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
     </div>`;
 
@@ -1048,7 +1049,9 @@ function render() {
           <div><label>Stage</label><select id="ld-stage">${STAGES.map(s=>`<option value="${s.key}" ${l.stage===s.key?'selected':''}>${s.label}</option>`).join('')}</select></div>
           <div><label>Sequence</label><select id="ld-seq"><option value="">None</option>${seqs.map(s=>`<option value="${s.id}" ${l.sequence_id===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div>
         </div>
-        <label>Notes</label><textarea id="ld-notes">${l.notes||''}</textarea>
+        <label>Notes</label><textarea id="ld-notes">${escAttr(l.notes||'')}</textarea>
+        <label style="display:flex;justify-content:space-between;align-items:center"><span>Custom WhatsApp template <span class="muted" style="font-size:10px;font-weight:400">(overrides sequence step for this lead — placeholders {{name}}, {{restaurant_name}}, {{city}}, {{swiggy_rating}}, {{zomato_rating}})</span></span>${l.custom_template ? '<span style="font-size:10px;font-weight:700;color:#c9a84c">CUSTOM ACTIVE</span>' : ''}</label>
+        <textarea id="ld-tpl" rows="3" placeholder="Leave blank to use the sequence step's default template">${escAttr(l.custom_template||'')}</textarea>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <button class="btn btn-primary" style="flex:1;padding:14px;min-width:100px" onclick="doUpdateLead('${l.id}')">Save</button>
           ${l.phone ? `<button class="btn" style="padding:14px 20px;background:rgba(74,222,128,0.15);color:#86efac;border:1px solid rgba(74,222,128,0.35)" onclick="openWAFor('${l.id}')">Message on WhatsApp</button>` : ''}
@@ -1134,6 +1137,17 @@ window.markConverted = function(id) {
 window.markDnc = function(id) {
   if (!confirm('Mark as DNC?\n• stage → dnc\n• paused → true\n• next_send_at → null\nThe sender will never touch this lead again unless you manually unlock.')) return;
   updateLead(id, { stage: 'dnc', paused: true, next_send_at: null });
+};
+
+window.exportLeads = function() {
+  if (!window.XLSX) return showToast('Excel library not loaded', 'error');
+  if (!state.leads.length) return showToast('No leads to export', 'error');
+  const ws = XLSX.utils.json_to_sheet(state.leads);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Leads');
+  const fname = `leads_export_${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  showToast(`Exported ${state.leads.length} leads`);
 };
 
 window.deleteLead = async function(id, name) {
@@ -1240,8 +1254,14 @@ window.doUpdateLead = function(id) {
   const stage = document.getElementById('ld-stage')?.value;
   const seqId = document.getElementById('ld-seq')?.value;
   const notes = document.getElementById('ld-notes')?.value;
+  const tplRaw = document.getElementById('ld-tpl')?.value;
   const lead = state.leads.find(l=>l.id===id);
-  const updates = {stage, notes, sequence_id: seqId||null};
+  const updates = {
+    stage,
+    notes,
+    sequence_id: seqId||null,
+    custom_template: (tplRaw && tplRaw.trim()) ? tplRaw : null,
+  };
   if(seqId && seqId!==lead.sequence_id) {
     updates.sequence_step = 0;
     updates.next_send_at = new Date().toISOString();
