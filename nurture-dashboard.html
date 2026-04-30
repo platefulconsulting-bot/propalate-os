@@ -1858,7 +1858,14 @@
     };
 
     window.pauseLead = function (id) { updateLead(id, { paused: true }); };
-    window.resumeLead = function (id) { updateLead(id, { paused: false }); };
+    window.resumeLead = function (id) {
+      const lead = state.leads.find(l => l.id === id);
+      const updates = { paused: false };
+      // If next_send_at is null (e.g., from a prior mass-pause), schedule immediately so
+      // the worker actually picks it up. Otherwise keep whatever future time was on it.
+      if (!lead || !lead.next_send_at) updates.next_send_at = new Date().toISOString();
+      updateLead(id, updates);
+    };
 
     window.setTemp = function (id, temp) {
       updateLead(id, { temperature: temp });
