@@ -83,15 +83,33 @@ client.on('ready', () => { ready = true; log('WhatsApp client ready. Polling eve
 client.on('disconnected', r => { console.error('Disconnected:', r); process.exit(1); });
 client.on('auth_failure', m => { console.error('Auth failure:', m); process.exit(1); });
 
-// ── Recent-send dedup so worker-originated messages don't get double-logged
-//    (or worse, echoed back as 'inbound' through linked-device sync, which then
-//    makes the auto-classifier label every contacted lead as 'warm').
-const recentlySent = new Set();
+// ── Echo dedup. The worker's own outbound can echo back through linked-device
+//    sync as a 'message' event, which would then be (mis)classified as a reply.
+//    We track three signatures of a recent worker send:
+//      1) the Message id that sendMessage returned ('true_<chatId>_<rand>')
+//      2) the body+chatId of the send (chatId might come back as @c.us or @lid,
+//         so we register both forms when possible)
+//      3) the body alone (final-fallback for cases where chatId reformatting hides
+//         the match — bodies are unique enough at our send rate)
+const recentlySentIds = new Set();
+const recentlySentKeys = new Set();
+const recentlySentBodies = new Set();
+function _expire(s, k, ms) { setTimeout(() => s.delete(k), ms); }
 function recentKey(chatId, body) { return chatId + '|' + String(body || '').slice(0, 200); }
-function markRecentSend(chatId, body) {
-  const key = recentKey(chatId, body);
-  recentlySent.add(key);
-  setTimeout(() => recentlySent.delete(key), 60000); // 60s — wider window for slow echo
+function markRecentSendId(id) {
+  if (!id) return;
+  recentlySentIds.add(id);
+  _expire(recentlySentIds, id, 90000);
+}
+function markRecentSendBody(chatId, body) {
+  const k = recentKey(chatId, body);
+  recentlySentKeys.add(k);
+  _expire(recentlySentKeys, k, 90000);
+  const b = String(body || '').slice(0, 200);
+  if (b) {
+    recentlySentBodies.add(b);
+    _expire(recentlySentBodies, b, 90000);
+  }
 }
 
 // True iff this message originated from this account (regardless of @lid quirks).
@@ -104,10 +122,15 @@ function isOutboundMsg(msg) {
   return false;
 }
 
-// True iff the body matches something the worker just sent on the same chat.
-// Used as a last-line defence against own-outbound echoing back as inbound.
-function isRecentSelfEcho(chatId, body) {
-  return recentlySent.has(recentKey(chatId, body));
+// Defensive: did the worker just send this same message? Triple-check.
+function isRecentSelfEcho(msg) {
+  const sid = msg && msg.id && msg.id._serialized;
+  if (sid && recentlySentIds.has(sid)) return true;
+  const chatId = msg && msg.from;
+  const body = msg && msg.body;
+  if (chatId && recentlySentKeys.has(recentKey(chatId, body))) return true;
+  if (body && recentlySentBodies.has(String(body).slice(0, 200))) return true;
+  return false;
 }
 
 // ── Two listeners with complementary coverage:
@@ -147,9 +170,14 @@ async function resolvePhone(msg, chatId) {
 
 client.on('message', async msg => {
   try {
-    if (isOutboundMsg(msg)) return; // strict: ignore our own sends echoed back
+    if (isOutboundMsg(msg)) return;
     if (!msg.from || msg.from.endsWith('@g.us') || msg.from.includes('status@broadcast')) return;
-    if (isRecentSelfEcho(msg.from, msg.body)) return; // body matches a recent worker send
+    // Skip protocol noise: read receipts, delivery acks, e2e notifications, group meta,
+    // revoked deletes, etc. These come through 'message' with empty body and would
+    // otherwise fall through the empty-string branch of the classifier (→ warm).
+    if (!msg.body || !String(msg.body).trim()) return;
+    if (msg.type && !['chat', 'image', 'video', 'audio', 'document', 'sticker', 'ptt'].includes(msg.type)) return;
+    if (isRecentSelfEcho(msg)) return;
     if (alreadyProcessed(msg)) return;
     await handleInbound(msg);
   } catch (e) {
@@ -159,9 +187,9 @@ client.on('message', async msg => {
 
 client.on('message_create', async msg => {
   try {
-    if (!isOutboundMsg(msg)) return; // inbound goes through 'message'
+    if (!isOutboundMsg(msg)) return;
     if (!msg.to || msg.to.endsWith('@g.us') || msg.to.includes('status@broadcast')) return;
-    if (isRecentSelfEcho(msg.to, msg.body)) return; // worker's own send, already logged
+    if (isRecentSelfEcho(msg)) return;
     if (alreadyProcessed(msg)) return;
     await handleOutboundManual(msg);
   } catch (e) {
@@ -317,9 +345,14 @@ async function sendOne(lead, step) {
   catch (e) { return { status: 'failed', error: 'isRegistered check failed: ' + e.message, body }; }
   if (!isReg) return { status: 'failed', error: 'Number not on WhatsApp', body };
 
-  // Mark this exact send so the message_create listener skips it (we log it ourselves below).
-  markRecentSend(chatId, body);
-  await client.sendMessage(chatId, body);
+  // Pre-mark by body+chatId so the listener can dedup even if the echo lands
+  // before sendMessage resolves with an id.
+  markRecentSendBody(chatId, body);
+  const sentMsg = await client.sendMessage(chatId, body);
+  // Then mark by the actual Message id, the most reliable dedup key.
+  if (sentMsg && sentMsg.id && sentMsg.id._serialized) {
+    markRecentSendId(sentMsg.id._serialized);
+  }
   return { status: 'sent', body };
 }
 
