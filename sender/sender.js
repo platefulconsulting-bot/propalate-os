@@ -108,14 +108,22 @@ function alreadyProcessed(msg) {
   return false;
 }
 
-// Resolve a chatId to an E.164 phone. Handles @c.us (direct) and @lid (linked-id
-// privacy format) by falling back to getContact() which surfaces .number.
+// Resolve a chatId to an E.164 phone. Handles @c.us (direct) and @lid (newer
+// privacy-preserving format) by digging into contact.id._serialized which still
+// carries the underlying phone-based @c.us identity. contact.number is unreliable
+// for @lid contacts (it returns the LID digit string, not the actual phone).
 async function resolvePhone(msg, chatId) {
   if (chatId && chatId.endsWith('@c.us')) return '+' + chatId.replace('@c.us', '');
   try {
     const contact = await msg.getContact();
-    if (contact && contact.number) return '+' + String(contact.number).replace(/[^\d]/g, '');
-    if (contact && contact.id && contact.id.user) return '+' + contact.id.user;
+    const sid = (contact && contact.id && contact.id._serialized) || '';
+    if (sid.endsWith('@c.us')) return '+' + sid.replace('@c.us', '');
+    if (contact && contact.id && contact.id.user && /^\d{10,15}$/.test(contact.id.user)) {
+      return '+' + contact.id.user;
+    }
+    if (contact && contact.number && /^\d{10,15}$/.test(String(contact.number))) {
+      return '+' + contact.number;
+    }
   } catch (e) { console.warn('getContact failed:', e.message); }
   return null;
 }
