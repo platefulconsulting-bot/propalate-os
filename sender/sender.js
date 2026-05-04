@@ -515,6 +515,29 @@ async function shutdown(sig) { log(sig + ' received, shutting down…'); try { a
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+// Remove stale Chromium singleton locks left behind by a previous container
+// that was force-killed before it could clean up. Without this, the new
+// container sees the old hostname's lock and refuses to start.
+function cleanupChromiumLocks() {
+  const sessionRoot = path.join(__dirname, 'wa-session');
+  if (!fs.existsSync(sessionRoot)) return;
+  const walk = dir => {
+    let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const f of entries) {
+      const p = path.join(dir, f.name);
+      try {
+        if (f.isDirectory()) { walk(p); continue; }
+        if (/^Singleton(Lock|Cookie|Socket)$/.test(f.name)) {
+          fs.unlinkSync(p);
+          log('Cleaned stale Chromium lock:', f.name, 'in', dir);
+        }
+      } catch (e) { /* ignore unlink errors */ }
+    }
+  };
+  walk(sessionRoot);
+}
+
 console.log('PFC WhatsApp sender starting…');
 console.log(DRY_RUN ? '⚠ DRY-RUN mode — no messages will actually be sent.' : '');
+cleanupChromiumLocks();
 client.initialize();
