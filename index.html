@@ -9421,7 +9421,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
         await firebase.firestore().collection('menu_audits').doc(auditId).update({ status: 'reviewed' });
       }
     } catch(e) { console.warn('FB finalise:', e.message); }
-    document.getElementById('moAuditDetailModal').style.display = 'flex';
+    openModal('moAuditDetailModal');
     document.getElementById('moAuditDetailTitle').textContent = 'Export Audit Report';
     const approved = _moSuggestions.filter(s => s._status === 'approved' || s._status === 'edited').length;
     const rejected = _moSuggestions.filter(s => s._status === 'rejected').length;
@@ -9613,7 +9613,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
           <div style="font-size:11px;color:var(--gold);margin-top:2px">${s.suggested||''}</div>
           ${s.kamNote ? `<div style="font-size:10px;color:var(--white3);margin-top:2px">Note: ${s.kamNote}</div>` : ''}
         </div>`).join('')}`;
-    document.getElementById('moAuditDetailModal').style.display = 'flex';
+    openModal('moAuditDetailModal');
   }
 
   // ── MASTER MENU ──
@@ -9705,7 +9705,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
     const cuisine = document.getElementById('moMasterCuisineFilter')?.value || 'north_indian';
     document.getElementById('mmiCuisine').value = cuisine;
     ['mmiName','mmiCategory','mmiPriceMin','mmiPriceMax','mmiNotes'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
-    document.getElementById('moMasterModal').style.display = 'flex';
+    openModal('moMasterModal');
   }
 
   async function saveMasterItem() {
