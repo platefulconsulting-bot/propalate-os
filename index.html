@@ -6980,7 +6980,8 @@ function renderClients() {
   // update badge
   const badge = document.getElementById('opsClientsBadge');
   if (badge) { badge.textContent = clients.length; badge.style.display = 'flex'; }
-  document.getElementById('qsClients').textContent = getClients().length;
+  const qs = document.getElementById('qsClients');
+  if (qs) qs.textContent = getClients().length;
 }
 
 function openAddClient() {
