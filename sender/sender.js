@@ -6,6 +6,8 @@ require('dotenv').config();
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
+const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
@@ -67,21 +69,69 @@ function render(tpl, lead) {
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: path.join(__dirname, 'wa-session') }),
   puppeteer: {
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     protocolTimeout: 300000, // 5 min — guards against slow inject on session restore
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // set in Docker
   },
 });
 
 let ready = false;
+let currentQR = null;
 
 client.on('qr', qr => {
-  console.log('\nScan this QR with the outreach phone — Settings → Linked Devices → Link a Device:\n');
+  currentQR = qr;
+  console.log('\nQR code generated. View at /, or scan terminal QR below:');
+  console.log('Settings → Linked Devices → Link a Device on the outreach phone.\n');
   qrcode.generate(qr, { small: true });
 });
 client.on('authenticated', () => log('Authenticated. Session cached for next run.'));
-client.on('ready', () => { ready = true; log('WhatsApp client ready. Polling every', POLL_SEC, 'seconds. Listening for inbound replies.'); pollLoop(); });
+client.on('ready', () => { ready = true; currentQR = null; log('WhatsApp client ready. Polling every', POLL_SEC, 'seconds. Listening for inbound replies.'); pollLoop(); });
 client.on('disconnected', r => { console.error('Disconnected:', r); process.exit(1); });
 client.on('auth_failure', m => { console.error('Auth failure:', m); process.exit(1); });
+
+// ── HTTP status / QR server ────────────────────────────────────────
+// Lets a hosted deployment (Railway, etc.) display the QR for scanning
+// without needing terminal access. Locally it's just a status page.
+const app = express();
+app.get('/', async (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  if (ready) {
+    const wid = (client.info && client.info.wid && client.info.wid.user) || 'unknown';
+    return res.send(`<!doctype html><html><head><title>PFC Sender — Connected</title>
+<style>body{font-family:system-ui,sans-serif;padding:40px;text-align:center;background:#0a0a0a;color:#f5f5f0;line-height:1.6}h1{color:#86efac}code{color:#c9a84c;background:#1a1a1a;padding:2px 8px;border-radius:4px}p{color:#aaa}</style>
+</head><body>
+  <h1>✅ Connected</h1>
+  <p>Authenticated as <code>+${wid}</code></p>
+  <p>Poll every <b>${POLL_SEC}s</b> · rate limit <b>${RATE_LIMIT_MS / 1000}s</b> · daily cap <b>${DAILY_CAP}</b></p>
+  <p>Today's count: <b>${dailyCount}/${DAILY_CAP}</b></p>
+  ${DRY_RUN ? '<p style="color:#fbbf24"><b>⚠ DRY-RUN mode — no real messages sent.</b></p>' : ''}
+</body></html>`);
+  }
+  if (currentQR) {
+    const dataUrl = await QRCode.toDataURL(currentQR, { width: 320, margin: 2 });
+    return res.send(`<!doctype html><html><head><title>PFC Sender — Scan QR</title>
+<meta http-equiv="refresh" content="10">
+<style>body{font-family:system-ui,sans-serif;padding:40px;text-align:center;background:#0a0a0a;color:#f5f5f0;line-height:1.6}h1{color:#c9a84c;letter-spacing:1px}p{color:#aaa}img{margin:20px;border-radius:12px;background:white;padding:8px}.muted{color:#666;font-size:12px}</style>
+</head><body>
+  <h1>Scan with WhatsApp</h1>
+  <p>On the outreach phone: <b>WhatsApp → Settings → Linked Devices → Link a Device</b></p>
+  <img src="${dataUrl}" alt="QR Code" />
+  <p class="muted">Page auto-refreshes every 10 seconds. QR also rotates every ~30s.</p>
+</body></html>`);
+  }
+  return res.send(`<!doctype html><html><head><title>PFC Sender — Initializing</title>
+<meta http-equiv="refresh" content="3">
+<style>body{font-family:system-ui,sans-serif;padding:40px;text-align:center;background:#0a0a0a;color:#f5f5f0}</style>
+</head><body>
+  <p>Worker is starting up… (Chromium boot can take 30–60 seconds on first deploy.)</p>
+</body></html>`);
+});
+app.get('/healthz', (_req, res) => res.json({ ready, dailyCount, dailyCap: DAILY_CAP, dryRun: DRY_RUN }));
+
+const HTTP_PORT = Number(process.env.PORT) || 3000;
+app.listen(HTTP_PORT, '0.0.0.0')
+  .on('listening', () => log(`HTTP on port ${HTTP_PORT} — visit / for QR / status`))
+  .on('error', e => log('HTTP server failed (continuing without web UI):', e.message));
 
 // ── Echo dedup. The worker's own outbound can echo back through linked-device
 //    sync as a 'message' event, which would then be (mis)classified as a reply.
@@ -461,7 +511,9 @@ async function pollLoop() {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Graceful shutdown ──────────────────────────────────────────────
-process.on('SIGINT', async () => { log('Shutting down…'); try { await client.destroy(); } catch (e) {} process.exit(0); });
+async function shutdown(sig) { log(sig + ' received, shutting down…'); try { await client.destroy(); } catch (e) {} process.exit(0); }
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 console.log('PFC WhatsApp sender starting…');
 console.log(DRY_RUN ? '⚠ DRY-RUN mode — no messages will actually be sent.' : '');
