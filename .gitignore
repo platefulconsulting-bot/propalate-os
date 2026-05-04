@@ -9,4 +9,10 @@ Thumbs.db
 sender/.env
 sender/node_modules/
 sender/wa-session/
+sender/.wwebjs_cache/
 sender/.daily-count.json
+
+# Local-only data exports
+leads_export_*.csv
+leads_export_*.xlsx
+leads_with_wa_templates.xlsx
