@@ -9247,6 +9247,7 @@ Return ONLY valid JSON, no markdown, no explanation.`;
         }
       } catch(fbErr) { console.warn('Firestore save skipped:', fbErr.message); }
       window._currentAuditId = auditId;
+      window._currentAuditData = auditData;
 
       renderAnalysisResults(result, clientName);
       renderReviewPanel(result.suggestions || [], auditId);
@@ -9386,8 +9387,16 @@ Return ONLY valid JSON, no markdown, no explanation.`;
     statusEl.style.background = status === 'approved' ? 'rgba(46,125,50,0.2)' : status === 'rejected' ? 'rgba(198,40,40,0.1)' : 'rgba(201,168,76,0.1)';
     statusEl.style.color = status === 'approved' ? '#66bb6a' : status === 'rejected' ? '#ef5350' : 'var(--gold)';
     statusEl.textContent = status === 'approved' ? '✓ Approved' : status === 'rejected' ? '✗ Rejected' : '✏️ Edited — export will include your note';
-    if (_moSuggestions[idx]) _moSuggestions[idx]._status = status;
-    if (_moSuggestions[idx]) _moSuggestions[idx]._note = note;
+    if (_moSuggestions[idx]) {
+      _moSuggestions[idx]._status = status;
+      _moSuggestions[idx]._note = note;
+      _moSuggestions[idx].status = status;
+      _moSuggestions[idx].kamNote = note;
+    }
+    if (window._currentAuditData?.suggestions?.[idx]) {
+      window._currentAuditData.suggestions[idx].status = status;
+      window._currentAuditData.suggestions[idx].kamNote = note;
+    }
     try {
       if (typeof firebase !== 'undefined') {
         await firebase.firestore().collection('menu_audits').doc(auditId).update({
@@ -9430,16 +9439,19 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
   // ── EXPORT: PDF AUDIT REPORT ──
   async function moExportAuditPDF(auditId) {
+    if (!window.jspdf) { alert('PDF library not loaded. Refresh the page and try again.'); return; }
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    let auditData;
+    let auditData = null;
     try {
-      try {
-      try { let snap = null; try { if(typeof firebase!=='undefined') snap = await firebase.firestore().collection('menu_audits').doc(auditId).get(); } catch(fbErr) { console.warn('FB:', fbErr.message); } } catch(fbErr) { console.warn('FB:', fbErr.message); }
-      auditData = snap.data();
-      } catch(fbErr) { console.warn('Firestore:', fbErr.message); }
-    } catch(e) {
-      auditData = { clientName:'Client', score:0, summary:'', suggestions:_moSuggestions, issues:[], createdAt:new Date().toISOString() };
+      if (typeof firebase !== 'undefined' && firebase.firestore) {
+        const snap = await firebase.firestore().collection('menu_audits').doc(auditId).get();
+        if (snap.exists) auditData = snap.data();
+      }
+    } catch(fbErr) { console.warn('FB read:', fbErr.message); }
+    if (!auditData) auditData = window._currentAuditData || null;
+    if (!auditData) {
+      auditData = { clientName:'Client', score:0, summary:'', suggestions:_moSuggestions||[], issues:[], createdAt:new Date().toISOString() };
     }
     const W = 210; const M = 16;
     let y = 20;
@@ -9484,14 +9496,17 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
   // ── EXPORT: SUGGESTION EXCEL ──
   async function moExportAuditExcel(auditId) {
-    let auditData;
+    if (typeof XLSX === 'undefined') { alert('Excel library not loaded. Refresh the page and try again.'); return; }
+    let auditData = null;
     try {
-      try {
-      try { let snap = null; try { if(typeof firebase!=='undefined') snap = await firebase.firestore().collection('menu_audits').doc(auditId).get(); } catch(fbErr) { console.warn('FB:', fbErr.message); } } catch(fbErr) { console.warn('FB:', fbErr.message); }
-      auditData = snap.data();
-      } catch(fbErr) { console.warn('Firestore:', fbErr.message); }
-    } catch(e) {
-      auditData = { clientName:'Client', suggestions:_moSuggestions };
+      if (typeof firebase !== 'undefined' && firebase.firestore) {
+        const snap = await firebase.firestore().collection('menu_audits').doc(auditId).get();
+        if (snap.exists) auditData = snap.data();
+      }
+    } catch(fbErr) { console.warn('FB read:', fbErr.message); }
+    if (!auditData) auditData = window._currentAuditData || null;
+    if (!auditData) {
+      auditData = { clientName:'Client', suggestions:_moSuggestions||[] };
     }
     const rows = (auditData.suggestions || []).map((s, i) => ({
       '#': i + 1,
@@ -9513,14 +9528,16 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
   // ── SHARE VIA WHATSAPP ──
   async function moShareAuditWA(auditId) {
-    let auditData;
+    let auditData = null;
     try {
-      try {
-      try { let snap = null; try { if(typeof firebase!=='undefined') snap = await firebase.firestore().collection('menu_audits').doc(auditId).get(); } catch(fbErr) { console.warn('FB:', fbErr.message); } } catch(fbErr) { console.warn('FB:', fbErr.message); }
-      auditData = snap.data();
-      } catch(fbErr) { console.warn('Firestore:', fbErr.message); }
-    } catch(e) {
-      auditData = { clientName:'Client', score:0, suggestions:_moSuggestions, issues:[] };
+      if (typeof firebase !== 'undefined' && firebase.firestore) {
+        const snap = await firebase.firestore().collection('menu_audits').doc(auditId).get();
+        if (snap.exists) auditData = snap.data();
+      }
+    } catch(fbErr) { console.warn('FB read:', fbErr.message); }
+    if (!auditData) auditData = window._currentAuditData || null;
+    if (!auditData) {
+      auditData = { clientName:'Client', score:0, suggestions:_moSuggestions||[], issues:[] };
     }
     const approved = (auditData.suggestions||[]).filter(s => s.status === 'approved');
     const topSuggs = approved.slice(0,5).map((s,i) => `${i+1}. ${s.itemName} — ${s.suggested}`).join('\n');
@@ -9573,26 +9590,30 @@ Return ONLY valid JSON, no markdown, no explanation.`;
 
   async function moOpenAuditDetail(auditId) {
     window._currentAuditId = auditId;
+    let a = null;
     try {
-      try {
-      try { let snap = null; try { if(typeof firebase!=='undefined') snap = await firebase.firestore().collection('menu_audits').doc(auditId).get(); } catch(fbErr) { console.warn('FB:', fbErr.message); } } catch(fbErr) { console.warn('FB:', fbErr.message); }
-      const a = snap.data();
-      } catch(fbErr) { console.warn('Firestore:', fbErr.message); }
-      document.getElementById('moAuditDetailTitle').textContent = `${a.clientName} · Score: ${a.score}/100`;
-      const scoreColor = a.score >= 75 ? '#66bb6a' : a.score >= 50 ? 'var(--gold)' : '#ef5350';
-      document.getElementById('moAuditDetailContent').innerHTML = `
-        <div style="font-size:11px;color:var(--white3);margin-bottom:10px">${a.cuisineLabel||a.cuisine} · ${new Date(a.createdAt).toLocaleDateString('en-IN')}</div>
-        <div style="font-size:30px;font-weight:900;color:${scoreColor};margin-bottom:6px">${a.score}<span style="font-size:14px;color:var(--white3)">/100</span></div>
-        <div style="font-size:12px;color:var(--white3);margin-bottom:14px;line-height:1.5">${a.summary||''}</div>
-        <div style="font-size:10px;color:var(--white3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${(a.suggestions||[]).length} Suggestions</div>
-        ${(a.suggestions||[]).slice(0,8).map((s,i) => `
-          <div style="padding:8px 0;border-bottom:1px solid var(--black4)">
-            <div style="font-size:12px;font-weight:600;color:var(--white)">${s.itemName}</div>
-            <div style="font-size:11px;color:var(--gold);margin-top:2px">${s.suggested||''}</div>
-            ${s.kamNote ? `<div style="font-size:10px;color:var(--white3);margin-top:2px">Note: ${s.kamNote}</div>` : ''}
-          </div>`).join('')}`;
-      document.getElementById('moAuditDetailModal').style.display = 'flex';
-    } catch(e) {}
+      if (typeof firebase !== 'undefined' && firebase.firestore) {
+        const snap = await firebase.firestore().collection('menu_audits').doc(auditId).get();
+        if (snap.exists) a = snap.data();
+      }
+    } catch(fbErr) { console.warn('FB read:', fbErr.message); }
+    if (!a && window._currentAuditData?.id === auditId) a = window._currentAuditData;
+    if (!a) { alert('Could not load audit. Try again or re-run the analysis.'); return; }
+    window._currentAuditData = a;
+    document.getElementById('moAuditDetailTitle').textContent = `${a.clientName} · Score: ${a.score}/100`;
+    const scoreColor = a.score >= 75 ? '#66bb6a' : a.score >= 50 ? 'var(--gold)' : '#ef5350';
+    document.getElementById('moAuditDetailContent').innerHTML = `
+      <div style="font-size:11px;color:var(--white3);margin-bottom:10px">${a.cuisineLabel||a.cuisine} · ${new Date(a.createdAt).toLocaleDateString('en-IN')}</div>
+      <div style="font-size:30px;font-weight:900;color:${scoreColor};margin-bottom:6px">${a.score}<span style="font-size:14px;color:var(--white3)">/100</span></div>
+      <div style="font-size:12px;color:var(--white3);margin-bottom:14px;line-height:1.5">${a.summary||''}</div>
+      <div style="font-size:10px;color:var(--white3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">${(a.suggestions||[]).length} Suggestions</div>
+      ${(a.suggestions||[]).slice(0,8).map((s,i) => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--black4)">
+          <div style="font-size:12px;font-weight:600;color:var(--white)">${s.itemName}</div>
+          <div style="font-size:11px;color:var(--gold);margin-top:2px">${s.suggested||''}</div>
+          ${s.kamNote ? `<div style="font-size:10px;color:var(--white3);margin-top:2px">Note: ${s.kamNote}</div>` : ''}
+        </div>`).join('')}`;
+    document.getElementById('moAuditDetailModal').style.display = 'flex';
   }
 
   // ── MASTER MENU ──
