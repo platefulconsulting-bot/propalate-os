@@ -8965,7 +8965,7 @@ deleteClient = async function(id) {
 
 
   <!-- ADD MASTER ITEM MODAL -->
-  <div class="modal-overlay" id="moMasterModal" style="display:none" onclick="if(event.target===this)closeModal('moMasterModal')">
+  <div class="modal-overlay" id="moMasterModal" onclick="if(event.target===this)closeModal('moMasterModal')">
     <div class="modal-box" style="max-width:360px">
       <div class="modal-title">Add Master Menu Item</div>
       <input class="ops-input" id="mmiName" placeholder="Item name *" style="margin-bottom:8px">
@@ -8999,7 +8999,7 @@ deleteClient = async function(id) {
   </div>
 
   <!-- AUDIT DETAIL MODAL -->
-  <div class="modal-overlay" id="moAuditDetailModal" style="display:none" onclick="if(event.target===this)closeModal('moAuditDetailModal')">
+  <div class="modal-overlay" id="moAuditDetailModal" onclick="if(event.target===this)closeModal('moAuditDetailModal')">
     <div class="modal-box" style="max-width:400px;max-height:80vh;overflow-y:auto">
       <div class="modal-title" id="moAuditDetailTitle">Audit Detail</div>
       <div id="moAuditDetailContent"></div>
