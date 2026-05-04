@@ -828,6 +828,12 @@
         state.sequences = s || [];
         state.pipelineStats = p || [];
         state.sendLog = sl || [];
+        // After re-fetch, point the open lead modal (if any) at the fresh row
+        // so total_msgs_sent / last_msg_sent_at / paused etc. reflect the worker's writes.
+        if (state.selectedLead) {
+          const fresh = state.leads.find(ld => ld.id === state.selectedLead.id);
+          if (fresh) state.selectedLead = fresh;
+        }
       } catch (e) {
         console.error('Load error:', e);
         showToast('Failed to load — check Supabase', 'error');
@@ -2266,6 +2272,19 @@
     // INIT
     render();
     if (state.authed) loadAll();
+
+    // Auto-refresh every 60s so the worker's writes show up without a manual ↻.
+    // Only refreshes when the user isn't typing in a text field, to avoid
+    // clobbering input — the existing focus-preservation in render() also helps.
+    setInterval(() => {
+      if (!state.authed) return;
+      const ae = document.activeElement;
+      const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+      if (typing) return;
+      loadAll();
+      if (state.view === 'inbox') loadInbox();
+      if (state.selectedLead) loadLeadChat(state.selectedLead.id);
+    }, 60000);
   </script>
 </body>
 
