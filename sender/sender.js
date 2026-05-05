@@ -14,7 +14,7 @@ const path = require('path');
 const SB_URL = required('SB_URL');
 const SB_KEY = required('SB_KEY');
 const POLL_SEC = num('POLL_SEC', 60);
-const RATE_LIMIT_MS = Math.max(num('RATE_LIMIT_MS', 120000), 60000); // default 2 min, hard floor 1 min
+const RATE_LIMIT_MS = Math.max(num('RATE_LIMIT_MS', 300000), 60000); // default 5 min, hard floor 1 min
 const DAILY_CAP = num('DAILY_CAP', 200);
 const DRY_RUN = process.env.DRY_RUN === '1';
 
@@ -198,24 +198,36 @@ function alreadyProcessed(msg) {
   return false;
 }
 
+// In-memory chatId → E.164 phone map. WhatsApp's @lid privacy format hides the
+// underlying phone, so when a manual outbound from the linked device fires with
+// a @lid recipient, we can't derive the phone from the chatId alone. This cache
+// is populated whenever we resolve a chatId↔phone pair (during worker sends or
+// during inbound reply handling), so subsequent manual outbounds to the same
+// chat resolve correctly even when only the @lid is exposed.
+const phoneByChatId = new Map();
+function rememberChatPhone(chatId, phone) {
+  if (chatId && phone) phoneByChatId.set(chatId, phone);
+}
+
 // Resolve a chatId to an E.164 phone. Handles @c.us (direct) and @lid (newer
-// privacy-preserving format) by digging into contact.id._serialized which still
-// carries the underlying phone-based @c.us identity. contact.number is unreliable
-// for @lid contacts (it returns the LID digit string, not the actual phone).
+// privacy-preserving format). Cache lookup wins; otherwise dig into the contact
+// and cache the result for future @lid messages on the same chat.
 async function resolvePhone(msg, chatId) {
-  if (chatId && chatId.endsWith('@c.us')) return '+' + chatId.replace('@c.us', '');
-  try {
-    const contact = await msg.getContact();
-    const sid = (contact && contact.id && contact.id._serialized) || '';
-    if (sid.endsWith('@c.us')) return '+' + sid.replace('@c.us', '');
-    if (contact && contact.id && contact.id.user && /^\d{10,15}$/.test(contact.id.user)) {
-      return '+' + contact.id.user;
-    }
-    if (contact && contact.number && /^\d{10,15}$/.test(String(contact.number))) {
-      return '+' + contact.number;
-    }
-  } catch (e) { console.warn('getContact failed:', e.message); }
-  return null;
+  if (chatId && phoneByChatId.has(chatId)) return phoneByChatId.get(chatId);
+  let phone = null;
+  if (chatId && chatId.endsWith('@c.us')) {
+    phone = '+' + chatId.replace('@c.us', '');
+  } else {
+    try {
+      const contact = await msg.getContact();
+      const sid = (contact && contact.id && contact.id._serialized) || '';
+      if (sid.endsWith('@c.us')) phone = '+' + sid.replace('@c.us', '');
+      else if (contact?.id?.user && /^\d{10,15}$/.test(contact.id.user)) phone = '+' + contact.id.user;
+      else if (contact?.number && /^\d{10,15}$/.test(String(contact.number))) phone = '+' + contact.number;
+    } catch (e) { console.warn('getContact failed:', e.message); }
+  }
+  if (phone && chatId) rememberChatPhone(chatId, phone);
+  return phone;
 }
 
 client.on('message', async msg => {
@@ -398,6 +410,10 @@ async function sendOne(lead, step) {
   catch (e) { return { status: 'failed', error: 'getNumberId failed: ' + e.message, body }; }
   if (!numberId) return { status: 'failed', error: 'Number not on WhatsApp', body };
   const chatId = numberId._serialized;
+
+  // Cache chatId → phone so any future manual outbound (or inbound reply) on
+  // this chat — including @lid privacy chats — can be attributed to this lead.
+  rememberChatPhone(chatId, '+' + digits);
 
   // Pre-mark by body+chatId so the listener can dedup even if the echo lands
   // before sendMessage resolves with an id.
