@@ -417,7 +417,14 @@ async function processLead(lead, sequencesById) {
 
   const stepNum = (lead.sequence_step || 0) + 1;
   if (stepNum > seq.total_steps) {
-    await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ next_send_at: null }) });
+    // Loop the sequence: reset to step 0 and reschedule after a cooldown so the
+    // lead never runs out. Stages 'replied', 'interested', 'call_booked',
+    // 'client', 'dnc', 'dead' are excluded by the poll filter, so anyone who
+    // engages or is locked out won't be looped.
+    const cooldownH = Number(process.env.LOOP_COOLDOWN_HOURS) || 24;
+    const nextAt = new Date(Date.now() + cooldownH * 3600 * 1000).toISOString();
+    await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ sequence_step: 0, next_send_at: nextAt }) });
+    log(`↻ ${lead.name} finished sequence — looping back to step 1 in ${cooldownH}h`);
     return;
   }
 

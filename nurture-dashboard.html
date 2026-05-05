@@ -1282,6 +1282,7 @@
         <option value="due" ${filt === 'due' ? 'selected' : ''}>Due now (${dueNow.length})</option>
         <option value="paused" ${filt === 'paused' ? 'selected' : ''}>Paused (${pausedLeads.length})</option>
       </select>
+      ${pausedLeads.length ? `<button class="btn" style="background:rgba(74,222,128,0.15);color:#86efac;border:1px solid rgba(74,222,128,0.35)" onclick="resumeAllPaused()">▶ Resume all ${pausedLeads.length}</button>` : ''}
       <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
     </div>`;
 
@@ -1746,7 +1747,7 @@
             </div>`
         }
         <div class="grid2">
-          <div><label>Stage</label><select id="ld-stage">${STAGES.map(s => `<option value="${s.key}" ${l.stage === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}</select></div>
+          <div><label>Stage</label><select id="ld-stage" onchange="quickSetStage('${l.id}', this.value)">${STAGES.map(s => `<option value="${s.key}" ${l.stage === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}</select></div>
           <div>
             <label>Pain Point</label>
             <select id="ld-pain" onchange="document.getElementById('ld-pain-other').style.display = this.value==='Other' ? 'block' : 'none'">
@@ -1944,8 +1945,35 @@
       updateLead(id, updates);
     };
 
+    window.resumeAllPaused = async function () {
+      const ids = state.leads.filter(l => l.paused).map(l => l.id);
+      if (!ids.length) return showToast('No paused leads', 'error');
+      if (!confirm(`Resume all ${ids.length} paused leads?\nAll will be unpaused and rescheduled to send immediately.`)) return;
+      try {
+        const BATCH = 200;
+        for (let i = 0; i < ids.length; i += BATCH) {
+          const slice = ids.slice(i, i + BATCH).join(',');
+          await sb(`leads?id=in.(${slice})`, { method: 'PATCH', body: JSON.stringify({ paused: false, next_send_at: new Date().toISOString() }) });
+        }
+        showToast(`Resumed ${ids.length} leads`);
+        loadAll();
+      } catch (e) { showToast('Resume failed: ' + e.message, 'error'); }
+    };
+
     window.setTemp = function (id, temp) {
       updateLead(id, { temperature: temp });
+    };
+
+    // Save stage immediately on dropdown change without closing the lead modal,
+    // so users can keep editing other fields after picking a stage.
+    window.quickSetStage = async function (id, stage) {
+      try {
+        await sb(`leads?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ stage }) });
+        const lead = state.leads.find(l => l.id === id);
+        if (lead) lead.stage = stage;
+        if (state.selectedLead?.id === id) state.selectedLead.stage = stage;
+        showToast('Stage → ' + stage);
+      } catch (e) { showToast('Stage update failed: ' + e.message, 'error'); }
     };
 
     window.markBooked = function (id) {
