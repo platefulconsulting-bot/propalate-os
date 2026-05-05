@@ -1283,6 +1283,7 @@
         <option value="paused" ${filt === 'paused' ? 'selected' : ''}>Paused (${pausedLeads.length})</option>
       </select>
       ${pausedLeads.length ? `<button class="btn" style="background:rgba(74,222,128,0.15);color:#86efac;border:1px solid rgba(74,222,128,0.35)" onclick="resumeAllPaused()">▶ Resume all ${pausedLeads.length}</button>` : ''}
+      <button class="btn" style="background:rgba(201,168,76,0.18);color:#c9a84c;border:1px solid rgba(201,168,76,0.45)" onclick="queueAllLeads()">🚀 Queue ALL eligible leads</button>
       <button class="btn btn-outline" onclick="loadAll()">Refresh</button>
     </div>`;
 
@@ -1958,6 +1959,78 @@
         showToast(`Resumed ${ids.length} leads`);
         loadAll();
       } catch (e) { showToast('Resume failed: ' + e.message, 'error'); }
+    };
+
+    // One-shot bulk action: push every eligible lead into the active queue.
+    // Eligible = NOT in a terminal stage (replied/interested/call_booked/client/dnc/dead).
+    // Leads without a sequence get the picked sequence assigned; everyone gets unpaused
+    // and scheduled to send now. Use after a fresh import or when you want to start
+    // the never-ending loop across the whole list.
+    window.queueAllLeads = async function () {
+      const seqs = state.sequences || [];
+      if (!seqs.length) return showToast('Create a sequence first', 'error');
+
+      const TERMINAL = ['replied', 'interested', 'call_booked', 'client', 'dnc', 'dead'];
+      const eligible = state.leads.filter(l => !TERMINAL.includes(l.stage));
+      if (!eligible.length) return showToast('No eligible leads', 'error');
+
+      const skipped = state.leads.length - eligible.length;
+      const noSeq = eligible.filter(l => !l.sequence_id);
+
+      // Pick a sequence — auto-pick if only one, otherwise prompt.
+      let seqId = seqs[0].id;
+      if (seqs.length > 1) {
+        const list = seqs.map((s, i) => `${i + 1}. ${s.name} (${s.total_steps} steps)`).join('\n');
+        const pick = prompt(`Which sequence should leads use?\n\n${list}\n\nEnter the number:`);
+        if (!pick) return;
+        const idx = parseInt(pick, 10) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= seqs.length) return showToast('Invalid choice', 'error');
+        seqId = seqs[idx].id;
+      }
+      const seqName = seqs.find(s => s.id === seqId)?.name || '?';
+
+      const msg = `Push ALL ${eligible.length} eligible leads into the queue?\n\n`
+        + `• Sequence: ${seqName}\n`
+        + `• ${noSeq.length} leads will be assigned this sequence (step 1)\n`
+        + `• ${eligible.length - noSeq.length} leads keep their current sequence + step\n`
+        + `• Everyone unpaused and scheduled to send now\n`
+        + `• ${skipped} leads SKIPPED (replied / booked / client / DNC / dead)`;
+      if (!confirm(msg)) return;
+
+      const now = new Date().toISOString();
+      try {
+        const BATCH = 200;
+
+        // Step 1: assign sequence to leads that don't have one — also reset step to 0
+        // and set stage to 'queued' so the worker picks them up cleanly.
+        if (noSeq.length) {
+          const ids = noSeq.map(l => l.id);
+          for (let i = 0; i < ids.length; i += BATCH) {
+            const slice = ids.slice(i, i + BATCH).join(',');
+            await sb(`leads?id=in.(${slice})`, {
+              method: 'PATCH',
+              body: JSON.stringify({ sequence_id: seqId, sequence_step: 0, stage: 'queued', paused: false, next_send_at: now }),
+            });
+          }
+        }
+
+        // Step 2: unpause + reschedule everyone else who already has a sequence —
+        // don't reset step or stage, just kick them.
+        const withSeq = eligible.filter(l => l.sequence_id);
+        if (withSeq.length) {
+          const ids = withSeq.map(l => l.id);
+          for (let i = 0; i < ids.length; i += BATCH) {
+            const slice = ids.slice(i, i + BATCH).join(',');
+            await sb(`leads?id=in.(${slice})`, {
+              method: 'PATCH',
+              body: JSON.stringify({ paused: false, next_send_at: now }),
+            });
+          }
+        }
+
+        showToast(`Queued ${eligible.length} leads (${noSeq.length} newly assigned)`);
+        loadAll();
+      } catch (e) { showToast('Queue all failed: ' + e.message, 'error'); }
     };
 
     window.setTemp = function (id, temp) {
