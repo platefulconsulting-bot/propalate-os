@@ -378,7 +378,6 @@ function classify(text) {
 async function sendOne(lead, step) {
   const digits = String(lead.phone || '').replace(/[^\d]/g, '');
   if (!digits) return { status: 'failed', error: 'No phone' };
-  const chatId = digits + '@c.us';
   // Per-lead override beats sequence step template.
   const tpl = (lead.custom_template && String(lead.custom_template).trim())
     ? lead.custom_template
@@ -390,10 +389,15 @@ async function sendOne(lead, step) {
     return { status: 'sent', body };
   }
 
-  let isReg;
-  try { isReg = await client.isRegisteredUser(chatId); }
-  catch (e) { return { status: 'failed', error: 'isRegistered check failed: ' + e.message, body }; }
-  if (!isReg) return { status: 'failed', error: 'Number not on WhatsApp', body };
+  // Resolve the canonical chatId via WhatsApp's resolver. This handles the
+  // LID privacy format introduced in 2024 — constructing `digits + '@c.us'`
+  // manually fails with "No LID for user" when WhatsApp routes the recipient
+  // through @lid. getNumberId returns whichever id the recipient actually uses.
+  let numberId;
+  try { numberId = await client.getNumberId(digits); }
+  catch (e) { return { status: 'failed', error: 'getNumberId failed: ' + e.message, body }; }
+  if (!numberId) return { status: 'failed', error: 'Number not on WhatsApp', body };
+  const chatId = numberId._serialized;
 
   // Pre-mark by body+chatId so the listener can dedup even if the echo lands
   // before sendMessage resolves with an id.
