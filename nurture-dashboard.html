@@ -1092,20 +1092,32 @@
         });
         html += `</div></div>`;
 
-        // TWO COL
+        // TWO COL — Hot + Warm leads (replaces old Active Sequences / Recent Sends)
+        const hotLeads = leads
+          .filter(l => l.temperature === 'hot')
+          .sort((a, b) => new Date(b.last_reply_at || b.last_msg_sent_at || 0) - new Date(a.last_reply_at || a.last_msg_sent_at || 0));
+        const warmLeads = leads
+          .filter(l => l.temperature === 'warm')
+          .sort((a, b) => new Date(b.last_reply_at || b.last_msg_sent_at || 0) - new Date(a.last_reply_at || a.last_msg_sent_at || 0));
+
+        const tempRow = (l) => {
+          const last = l.last_reply_at ? `replied ${relTime(l.last_reply_at)}` : (l.last_msg_sent_at ? `sent ${relTime(l.last_msg_sent_at)}` : '—');
+          return `<div class="card-row" style="cursor:pointer" onclick="openLead('${l.id}')">
+        <span style="font-weight:600">${l.name || '—'}</span>
+        <span class="muted">${l.restaurant_name || l.phone || ''}</span>
+        <span class="muted" style="font-size:11px">${last}</span>
+      </div>`;
+        };
+
         html += `<div class="grid-2">`;
-        html += `<div class="card"><h3>Active sequences</h3>`;
-        seqs.forEach(s => {
-          const n = leads.filter(l => l.sequence_id === s.id).length;
-          html += `<div class="card-row"><span style="font-weight:600">${s.name}</span><span class="muted">${n} leads | ${s.total_steps} steps</span></div>`;
-        });
+        html += `<div class="card"><h3 style="display:flex;align-items:center;gap:8px"><span style="color:#ef4444">🔥</span> Hot leads <span class="muted" style="font-size:11px;font-weight:400">(${hotLeads.length})</span></h3>`;
+        if (!hotLeads.length) html += `<div class="muted" style="padding:20px 0;text-align:center">No hot leads yet</div>`;
+        else hotLeads.slice(0, 8).forEach(l => { html += tempRow(l); });
         html += `</div>`;
 
-        html += `<div class="card"><h3>Recent sends</h3>`;
-        if (state.sendLog.length === 0) html += `<div class="muted" style="padding:20px 0;text-align:center">No messages sent yet</div>`;
-        state.sendLog.slice(0, 8).forEach(s => {
-          html += `<div class="card-row"><span>Step ${s.step_number || '-'}</span>${badge(s.status === 'replied' ? 'replied' : s.status === 'sent' ? 'contacted' : 'new')}<span class="muted">${new Date(s.sent_at).toLocaleDateString('en-IN')}</span></div>`;
-        });
+        html += `<div class="card"><h3 style="display:flex;align-items:center;gap:8px"><span style="color:#fb923c">⚡</span> Warm leads <span class="muted" style="font-size:11px;font-weight:400">(${warmLeads.length})</span></h3>`;
+        if (!warmLeads.length) html += `<div class="muted" style="padding:20px 0;text-align:center">No warm leads yet</div>`;
+        else warmLeads.slice(0, 8).forEach(l => { html += tempRow(l); });
         html += `</div></div>`;
       }
 
