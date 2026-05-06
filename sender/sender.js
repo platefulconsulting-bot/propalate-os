@@ -564,7 +564,24 @@ function cleanupChromiumLocks() {
   walk(sessionRoot);
 }
 
+// Don't let transient Puppeteer ProtocolErrors (e.g., "Execution context was
+// destroyed" when WhatsApp Web reloads its page mid-eval) take the whole
+// process down. Logging them keeps Express alive so the status page is still
+// reachable, and whatsapp-web.js will surface a 'disconnected' event for
+// genuinely fatal issues — that handler still exits.
+process.on('unhandledRejection', (err) => {
+  const msg = (err && err.message) || String(err);
+  console.error('UNHANDLED REJECTION:', msg);
+});
+process.on('uncaughtException', (err) => {
+  const stack = (err && err.stack) || String(err);
+  console.error('UNCAUGHT EXCEPTION:', stack);
+});
+
 console.log('PFC WhatsApp sender starting…');
 console.log(DRY_RUN ? '⚠ DRY-RUN mode — no messages will actually be sent.' : '');
 cleanupChromiumLocks();
-client.initialize();
+client.initialize().catch(e => {
+  console.error('client.initialize() failed:', e.message);
+  console.error('If this persists: wipe the wa-session volume in Railway and redeploy to re-scan QR.');
+});
