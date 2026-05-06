@@ -15,7 +15,7 @@ const SB_URL = required('SB_URL');
 const SB_KEY = required('SB_KEY');
 const POLL_SEC = num('POLL_SEC', 60);
 const RATE_LIMIT_MS = Math.max(num('RATE_LIMIT_MS', 300000), 60000); // default 5 min, hard floor 1 min
-const DAILY_CAP = num('DAILY_CAP', 200);
+const DAILY_CAP = num('DAILY_CAP', 50);
 const DRY_RUN = process.env.DRY_RUN === '1';
 
 function required(k) { const v = process.env[k]; if (!v) { console.error(`Missing env ${k}`); process.exit(1); } return v; }
