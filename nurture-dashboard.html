@@ -815,8 +815,12 @@
       return all;
     }
 
-    async function loadAll() {
-      state.loading = true; render();
+    async function loadAll(silent = false) {
+      // Silent mode (used by auto-refresh) skips the loading-spinner render so
+      // the user doesn't see a flicker every 60s. Errors stay quiet too — no
+      // toast — since a transient network blip during background poll isn't
+      // user-actionable.
+      if (!silent) { state.loading = true; render(); }
       try {
         const [l, s, p, sl] = await Promise.all([
           loadAllLeadsPaged(),
@@ -836,9 +840,10 @@
         }
       } catch (e) {
         console.error('Load error:', e);
-        showToast('Failed to load — check Supabase', 'error');
+        if (!silent) showToast('Failed to load — check Supabase', 'error');
       }
-      state.loading = false; render();
+      state.loading = false;
+      render();
     }
 
     async function addLead(lead) {
@@ -2391,12 +2396,16 @@
     // clobbering input — the existing focus-preservation in render() also helps.
     setInterval(() => {
       if (!state.authed) return;
+      // Skip auto-refresh when any modal is open — a full re-render mid-edit
+      // disrupts focus, scroll, and pending button clicks. User can hit Refresh
+      // manually inside the modal if they want fresh data.
+      if (state.selectedLead || state.showCSV || state.showAddLead || state.showWaTemplate) return;
+      // Skip if user is actively typing in a field somewhere on the page.
       const ae = document.activeElement;
       const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
       if (typing) return;
-      loadAll();
+      loadAll(true); // silent — no loading spinner flicker
       if (state.view === 'inbox') loadInbox();
-      if (state.selectedLead) loadLeadChat(state.selectedLead.id);
     }, 60000);
   </script>
 </body>
