@@ -386,6 +386,27 @@ function classify(text) {
   return { label: 'warm', temperature: 'warm' };
 }
 
+// Promotional / spammy keywords WhatsApp commonly flags on cold outreach.
+// Pre-send filter rejects any rendered body containing one of these so a bad
+// template (sequence step or per-lead override) can't slip through to the
+// recipient. Mirror this list with the dashboard's BANNED_KEYWORDS.
+const BANNED_KEYWORDS = [
+  'sales', 'sale', 'discount', 'offer', 'deal', 'promo', 'promotion',
+  'free', 'win', 'prize', 'gift', 'lottery', 'reward', 'cashback',
+  'earn', 'profit', 'roi', 'income',
+  'growth', 'grow', 'scale', 'boost', 'increase', 'multiply', 'skyrocket',
+  'urgent', 'hurry', 'limited time', 'act now', 'last chance',
+  'today only', 'expires', 'deadline',
+  'click here', 'click below', 'sign up', 'subscribe', 'register now', 'join now',
+  'buy now', 'order now',
+  'guaranteed', '100%', 'no risk', 'risk-free', 'guarantee',
+  'advertising', 'marketing campaign',
+];
+function scanBanned(text) {
+  const t = String(text || '').toLowerCase();
+  return BANNED_KEYWORDS.filter(w => t.includes(w.toLowerCase()));
+}
+
 // ── Send one lead ──────────────────────────────────────────────────
 async function sendOne(lead, step) {
   const digits = String(lead.phone || '').replace(/[^\d]/g, '');
@@ -395,6 +416,13 @@ async function sendOne(lead, step) {
     ? lead.custom_template
     : step.template;
   const body = render(tpl, lead);
+
+  // Pre-send safety net: reject promotional language that triggers WA bans.
+  // Caller pauses the lead so it doesn't keep retrying with the same template.
+  const banned = scanBanned(body);
+  if (banned.length) {
+    return { status: 'failed', error: `Blocked: contains banned word(s): ${banned.join(', ')}`, body, blocked: true };
+  }
 
   if (DRY_RUN) {
     log(`[DRY-RUN] ${lead.name} (${lead.phone}) → ${body.slice(0, 80)}…`);
@@ -469,6 +497,11 @@ async function processLead(lead, sequencesById) {
 
   if (result.status !== 'sent') {
     log(`✗ ${lead.name}: ${result.error}`);
+    // Banned-keyword block: pause the lead so we don't keep retrying with the
+    // same bad template every poll. User edits the template + resumes.
+    if (result.blocked) {
+      try { await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ paused: true }) }); } catch (_) {}
+    }
     return;
   }
 

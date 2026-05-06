@@ -773,8 +773,30 @@
       'Other',
     ];
 
+    // ── Banned-keyword filter ──
+    // WhatsApp aggressively flags promotional language on linked-device cold
+    // outreach. These words/phrases routinely trigger bans. The dashboard
+    // warns on save and the worker pre-send filter rejects messages that
+    // contain any of them. Edit this list as you tune your templates.
+    const BANNED_KEYWORDS = [
+      'sales', 'sale', 'discount', 'offer', 'deal', 'promo', 'promotion',
+      'free', 'win', 'prize', 'gift', 'lottery', 'reward', 'cashback',
+      'earn', 'profit', 'roi', 'income',
+      'growth', 'grow', 'scale', 'boost', 'increase', 'multiply', 'skyrocket',
+      'urgent', 'hurry', 'limited time', 'act now', 'last chance',
+      'today only', 'expires', 'deadline',
+      'click here', 'click below', 'sign up', 'subscribe', 'register now', 'join now',
+      'buy now', 'order now',
+      'guaranteed', '100%', 'no risk', 'risk-free', 'guarantee',
+      'advertising', 'marketing campaign',
+    ];
+    function scanBanned(text) {
+      const t = String(text || '').toLowerCase();
+      return BANNED_KEYWORDS.filter(w => t.includes(w.toLowerCase()));
+    }
+
     // ── WhatsApp click-to-chat ──
-    const DEFAULT_WA_TEMPLATE = `Hi {firstName}, this is from Plateful Consulting. We help restaurants like {restaurant} grow on Swiggy & Zomato. Do you have a minute to chat?`;
+    const DEFAULT_WA_TEMPLATE = `Hi {firstName}, this is from Plateful Consulting. We work with restaurants like {restaurant} on Swiggy & Zomato. Do you have a minute to chat?`;
     state.waTemplate = localStorage.getItem('pfc_wa_template') || DEFAULT_WA_TEMPLATE;
     state.showWaTemplate = false;
 
@@ -797,6 +819,24 @@
       state.toast = { msg, type };
       render();
       setTimeout(() => { state.toast = null; render(); }, 3000);
+    }
+
+    // Live banned-keyword warning under a textarea. Wired via oninput.
+    window.checkBannedInline = function (taId, warnId) {
+      const ta = document.getElementById(taId);
+      const warn = document.getElementById(warnId);
+      if (!ta || !warn) return;
+      const hits = scanBanned(ta.value);
+      if (!hits.length) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
+      warn.style.display = 'block';
+      warn.innerHTML = `⚠ <b>Risky words detected:</b> ${hits.map(w => `<code style="background:rgba(248,113,113,0.18);padding:1px 6px;border-radius:3px;color:#fecaca">${w}</code>`).join(' ')} <span style="color:#aaa">— promotional language often triggers WhatsApp bans on cold outreach.</span>`;
+    };
+
+    // Returns true if user is OK to proceed (no hits or user confirmed override).
+    function confirmBannedOrAbort(text, label) {
+      const hits = scanBanned(text);
+      if (!hits.length) return true;
+      return confirm(`${label} contains words that often trigger WhatsApp bans:\n\n  ${hits.join(', ')}\n\nSave anyway? Cancel to edit instead.`);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -1780,7 +1820,8 @@
         </div>
         <label>Notes</label><textarea id="ld-notes">${escAttr(l.notes || '')}</textarea>
         <label style="display:flex;justify-content:space-between;align-items:center"><span>Custom WhatsApp template <span class="muted" style="font-size:10px;font-weight:400">(overrides sequence step for this lead — placeholders {{name}}, {{restaurant_name}}, {{city}}, {{swiggy_rating}}, {{zomato_rating}})</span></span>${l.custom_template ? '<span style="font-size:10px;font-weight:700;color:#c9a84c">CUSTOM ACTIVE</span>' : ''}</label>
-        <textarea id="ld-tpl" rows="3" placeholder="Leave blank to use the sequence step's default template">${escAttr(l.custom_template || '')}</textarea>
+        <textarea id="ld-tpl" rows="3" placeholder="Leave blank to use the sequence step's default template" oninput="checkBannedInline('ld-tpl','ld-tpl-warn')">${escAttr(l.custom_template || '')}</textarea>
+        <div id="ld-tpl-warn" style="display:none;margin-top:6px;padding:8px 10px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:6px;font-size:11px;color:#fca5a5"></div>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <button class="btn btn-primary" style="flex:1;padding:14px;min-width:100px" onclick="doUpdateLead('${l.id}')">Save</button>
           ${l.phone ? `<button class="btn" style="padding:14px 20px;background:rgba(74,222,128,0.15);color:#86efac;border:1px solid rgba(74,222,128,0.35)" onclick="openWAFor('${l.id}')">Message on WhatsApp</button>` : ''}
@@ -1812,7 +1853,8 @@
       <div class="modal" onclick="event.stopPropagation()">
         <h2>WhatsApp template</h2>
         <div class="muted" style="font-size:11px;margin-bottom:10px">Placeholders: <b>{firstName}</b>, <b>{name}</b>, <b>{restaurant}</b>, <b>{city}</b></div>
-        <textarea id="wa-tpl" rows="6" style="min-height:140px">${escAttr(state.waTemplate)}</textarea>
+        <textarea id="wa-tpl" rows="6" style="min-height:140px" oninput="checkBannedInline('wa-tpl','wa-tpl-warn')">${escAttr(state.waTemplate)}</textarea>
+        <div id="wa-tpl-warn" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:6px;font-size:11px;color:#fca5a5"></div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-outline" style="flex:1;padding:14px" onclick="resetWaTemplate()">Reset to default</button>
           <button class="btn btn-primary" style="flex:1;padding:14px" onclick="saveWaTemplate()">Save</button>
@@ -1823,6 +1865,9 @@
 
       app.innerHTML = html;
       _restoreFocus();
+      // Initial banned-keyword scan when template fields are present.
+      if (document.getElementById('ld-tpl')) checkBannedInline('ld-tpl', 'ld-tpl-warn');
+      if (document.getElementById('wa-tpl')) checkBannedInline('wa-tpl', 'wa-tpl-warn');
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -2182,6 +2227,7 @@
     window.saveWaTemplate = function () {
       const v = document.getElementById('wa-tpl')?.value;
       if (v == null) return;
+      if (!confirmBannedOrAbort(v, 'WhatsApp template')) return;
       state.waTemplate = v;
       localStorage.setItem('pfc_wa_template', v);
       state.showWaTemplate = false;
@@ -2200,6 +2246,7 @@
       const painOther = (document.getElementById('ld-pain-other')?.value || '').trim();
       const notes = document.getElementById('ld-notes')?.value;
       const tplRaw = document.getElementById('ld-tpl')?.value;
+      if (tplRaw && !confirmBannedOrAbort(tplRaw, 'Custom template')) return;
       let painPoint = null;
       if (painPick === 'Other') painPoint = painOther ? `Other: ${painOther}` : 'Other';
       else if (painPick) painPoint = painPick;
