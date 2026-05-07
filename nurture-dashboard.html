@@ -718,6 +718,29 @@
       return text ? JSON.parse(text) : null;
     }
 
+    // Exact row count via PostgREST HEAD + Content-Range. Bypasses the default
+    // row-list cap (≈1000) that .length-of-fetched-rows would silently hit on
+    // high-volume tables like send_log. Returns the true total count.
+    async function sbCount(path) {
+      const sep = path.includes('?') ? '&' : '?';
+      const url = `${SB_URL}/rest/v1/${path}${sep}select=id`;
+      const r = await fetch(url, {
+        method: 'HEAD',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': `Bearer ${SB_KEY}`,
+          'Prefer': 'count=exact',
+          'Range-Unit': 'items',
+          'Range': '0-0',
+        },
+      });
+      const cr = r.headers.get('content-range') || '';
+      const total = cr.split('/')[1];
+      if (!total || total === '*') return 0;
+      const n = Number(total);
+      return Number.isFinite(n) ? n : 0;
+    }
+
     // ══════════════════════════════════════════════════════════════
     // STATE
     // ══════════════════════════════════════════════════════════════
@@ -893,10 +916,10 @@
       return all;
     }
 
-    // Pull bucketed message counts for the dashboard activity panel. Runs on
-    // dashboard view + on auto-refresh tick. Counts are date-filtered server
-    // side via send_log.sent_at; all-time totals are derived from leads
-    // (total_msgs_sent / total_replies) which the worker keeps in sync.
+    // Pull bucketed message counts for the dashboard activity panel. All
+    // counts come from send_log via HEAD + Prefer:count=exact so PostgREST's
+    // default row-list cap can't silently truncate them. All-time totals
+    // include every send_log row, so they're always >= any time-window count.
     async function loadMessageStats() {
       try {
         const now = new Date();
@@ -904,19 +927,21 @@
         const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
         const monthAgo = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
         const iso = (d) => d.toISOString();
-        const [tSent, wSent, mSent, tRep, wRep, mRep, fail30] = await Promise.all([
-          sb(`send_log?status=eq.sent&sent_at=gte.${iso(today)}&select=id`),
-          sb(`send_log?status=eq.sent&sent_at=gte.${iso(weekAgo)}&select=id`),
-          sb(`send_log?status=eq.sent&sent_at=gte.${iso(monthAgo)}&select=id`),
-          sb(`send_log?status=eq.replied&sent_at=gte.${iso(today)}&select=id`),
-          sb(`send_log?status=eq.replied&sent_at=gte.${iso(weekAgo)}&select=id`),
-          sb(`send_log?status=eq.replied&sent_at=gte.${iso(monthAgo)}&select=id`),
-          sb(`send_log?status=eq.failed&sent_at=gte.${iso(monthAgo)}&select=id`),
+        const [tSent, wSent, mSent, allSent, tRep, wRep, mRep, allRep, fail30] = await Promise.all([
+          sbCount(`send_log?status=eq.sent&sent_at=gte.${iso(today)}`),
+          sbCount(`send_log?status=eq.sent&sent_at=gte.${iso(weekAgo)}`),
+          sbCount(`send_log?status=eq.sent&sent_at=gte.${iso(monthAgo)}`),
+          sbCount(`send_log?status=eq.sent`),
+          sbCount(`send_log?status=eq.replied&sent_at=gte.${iso(today)}`),
+          sbCount(`send_log?status=eq.replied&sent_at=gte.${iso(weekAgo)}`),
+          sbCount(`send_log?status=eq.replied&sent_at=gte.${iso(monthAgo)}`),
+          sbCount(`send_log?status=eq.replied`),
+          sbCount(`send_log?status=eq.failed&sent_at=gte.${iso(monthAgo)}`),
         ]);
         state.msgStats = {
-          todaySent: tSent?.length || 0, weekSent: wSent?.length || 0, monthSent: mSent?.length || 0,
-          todayReplies: tRep?.length || 0, weekReplies: wRep?.length || 0, monthReplies: mRep?.length || 0,
-          failed30d: fail30?.length || 0,
+          todaySent: tSent, weekSent: wSent, monthSent: mSent, allSent,
+          todayReplies: tRep, weekReplies: wRep, monthReplies: mRep, allReplies: allRep,
+          failed30d: fail30,
         };
         render();
       } catch (e) { console.warn('loadMessageStats:', e.message); }
@@ -1201,9 +1226,9 @@
         // Kick off bucketed message-count load if we don't have them yet. Runs
         // async; render() fires again when the data lands.
         if (!state.msgStats) loadMessageStats();
-        const ms = state.msgStats || { todaySent: '…', weekSent: '…', monthSent: '…', todayReplies: '…', weekReplies: '…', monthReplies: '…', failed30d: '…' };
-        const allTimeSent = leads.reduce((s, l) => s + (l.total_msgs_sent || 0), 0);
-        const allTimeReplies = leads.reduce((s, l) => s + (l.total_replies || 0), 0);
+        const ms = state.msgStats || { todaySent: '…', weekSent: '…', monthSent: '…', allSent: '…', todayReplies: '…', weekReplies: '…', monthReplies: '…', allReplies: '…', failed30d: '…' };
+        const allTimeSent = ms.allSent;
+        const allTimeReplies = ms.allReplies;
 
         html += `<div class="stats-row">
       <div class="stat-card"><div class="label">Total leads</div><div class="value">${leads.length}</div></div>
