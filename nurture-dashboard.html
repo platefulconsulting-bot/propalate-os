@@ -728,6 +728,10 @@
       sequences: [],
       pipelineStats: [],
       sendLog: [],
+      msgStats: null,
+      showMsgLog: false,
+      msgLogRows: null,
+      msgLogFilter: 'all',
       search: '',
       stageFilter: 'all',
       page: 1,
@@ -888,6 +892,55 @@
       }
       return all;
     }
+
+    // Pull bucketed message counts for the dashboard activity panel. Runs on
+    // dashboard view + on auto-refresh tick. Counts are date-filtered server
+    // side via send_log.sent_at; all-time totals are derived from leads
+    // (total_msgs_sent / total_replies) which the worker keeps in sync.
+    async function loadMessageStats() {
+      try {
+        const now = new Date();
+        const today = new Date(now); today.setHours(0,0,0,0);
+        const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
+        const monthAgo = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
+        const iso = (d) => d.toISOString();
+        const [tSent, wSent, mSent, tRep, wRep, mRep, fail30] = await Promise.all([
+          sb(`send_log?status=eq.sent&sent_at=gte.${iso(today)}&select=id`),
+          sb(`send_log?status=eq.sent&sent_at=gte.${iso(weekAgo)}&select=id`),
+          sb(`send_log?status=eq.sent&sent_at=gte.${iso(monthAgo)}&select=id`),
+          sb(`send_log?status=eq.replied&sent_at=gte.${iso(today)}&select=id`),
+          sb(`send_log?status=eq.replied&sent_at=gte.${iso(weekAgo)}&select=id`),
+          sb(`send_log?status=eq.replied&sent_at=gte.${iso(monthAgo)}&select=id`),
+          sb(`send_log?status=eq.failed&sent_at=gte.${iso(monthAgo)}&select=id`),
+        ]);
+        state.msgStats = {
+          todaySent: tSent?.length || 0, weekSent: wSent?.length || 0, monthSent: mSent?.length || 0,
+          todayReplies: tRep?.length || 0, weekReplies: wRep?.length || 0, monthReplies: mRep?.length || 0,
+          failed30d: fail30?.length || 0,
+        };
+        render();
+      } catch (e) { console.warn('loadMessageStats:', e.message); }
+    }
+
+    window.openMsgLog = async function () {
+      state.showMsgLog = true;
+      state.msgLogRows = null;
+      render();
+      try {
+        const rows = await sb('send_log?select=*&order=sent_at.desc&limit=500');
+        state.msgLogRows = rows || [];
+      } catch (e) {
+        state.msgLogRows = [];
+        showToast('Failed to load log: ' + e.message, 'error');
+      }
+      render();
+    };
+
+    window.closeMsgLog = function () {
+      state.showMsgLog = false;
+      state.msgLogRows = null;
+      render();
+    };
 
     async function loadAll(silent = false) {
       // Silent mode (used by auto-refresh) skips the loading-spinner render so
@@ -1144,15 +1197,38 @@
         const inSeq = leads.filter(l => ['queued', 'contacted'].includes(l.stage)).length;
         const replied = leads.filter(l => l.total_replies > 0).length;
         const clients = leads.filter(l => l.stage === 'client').length;
-        const todaySent = state.sendLog.filter(s => new Date(s.sent_at).toDateString() === new Date().toDateString()).length;
+
+        // Kick off bucketed message-count load if we don't have them yet. Runs
+        // async; render() fires again when the data lands.
+        if (!state.msgStats) loadMessageStats();
+        const ms = state.msgStats || { todaySent: '…', weekSent: '…', monthSent: '…', todayReplies: '…', weekReplies: '…', monthReplies: '…', failed30d: '…' };
+        const allTimeSent = leads.reduce((s, l) => s + (l.total_msgs_sent || 0), 0);
+        const allTimeReplies = leads.reduce((s, l) => s + (l.total_replies || 0), 0);
 
         html += `<div class="stats-row">
       <div class="stat-card"><div class="label">Total leads</div><div class="value">${leads.length}</div></div>
       <div class="stat-card" style="border-color:var(--orange)"><div class="label">In sequence</div><div class="value">${inSeq}</div></div>
       <div class="stat-card" style="border-color:var(--green)"><div class="label">Replied</div><div class="value">${replied}</div></div>
       <div class="stat-card" style="border-color:var(--cyan)"><div class="label">Clients</div><div class="value">${clients}</div></div>
-      <div class="stat-card" style="border-color:var(--blue)"><div class="label">Sent today</div><div class="value">${todaySent}</div></div>
     </div>`;
+
+        // ── MESSAGING ACTIVITY ──
+        // Clear, comprehensive view of what the worker is doing. Today / week /
+        // month / all-time, sends + replies + failures, plus a button to open
+        // the full log.
+        html += `<div class="card" style="margin-top:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap">
+            <h3 style="margin:0;display:flex;align-items:center;gap:8px"><span style="color:#60a5fa">📨</span> Messaging activity</h3>
+            <button class="btn btn-outline" style="padding:7px 14px;font-size:11px" onclick="openMsgLog()">📋 View full message log →</button>
+          </div>
+          <div class="stats-row" style="margin-top:0">
+            <div class="stat-card" style="border-color:#60a5fa"><div class="label">Today sent</div><div class="value">${ms.todaySent}</div><div class="muted" style="font-size:10px;margin-top:2px">↳ ${ms.todayReplies} ${ms.todayReplies === 1 ? 'reply' : 'replies'}</div></div>
+            <div class="stat-card"><div class="label">Last 7 days</div><div class="value">${ms.weekSent}</div><div class="muted" style="font-size:10px;margin-top:2px">↳ ${ms.weekReplies} ${ms.weekReplies === 1 ? 'reply' : 'replies'}</div></div>
+            <div class="stat-card"><div class="label">Last 30 days</div><div class="value">${ms.monthSent}</div><div class="muted" style="font-size:10px;margin-top:2px">↳ ${ms.monthReplies} ${ms.monthReplies === 1 ? 'reply' : 'replies'}</div></div>
+            <div class="stat-card" style="border-color:var(--green)"><div class="label">All-time sent</div><div class="value">${allTimeSent}</div><div class="muted" style="font-size:10px;margin-top:2px">↳ ${allTimeReplies} total ${allTimeReplies === 1 ? 'reply' : 'replies'}</div></div>
+            <div class="stat-card" style="border-color:#ef4444"><div class="label">Failed (30d)</div><div class="value">${ms.failed30d}</div><div class="muted" style="font-size:10px;margin-top:2px">${typeof ms.failed30d === 'number' && ms.failed30d > 0 ? 'open log to inspect' : 'all clear'}</div></div>
+          </div>
+        </div>`;
 
         // PIPELINE
         const funnelStages = STAGES.filter(s => s.key !== 'dnc');
@@ -1881,6 +1957,75 @@
     </div>`;
       }
 
+      // MESSAGE LOG MODAL
+      if (state.showMsgLog) {
+        const rows = state.msgLogRows;
+        const filt = state.msgLogFilter || 'all';
+        const counts = rows ? {
+          all: rows.length,
+          sent: rows.filter(r => r.status === 'sent').length,
+          replied: rows.filter(r => r.status === 'replied').length,
+          failed: rows.filter(r => r.status === 'failed').length,
+        } : null;
+        const filtered = !rows ? [] : (filt === 'all' ? rows : rows.filter(r => r.status === filt));
+        const leadById = Object.fromEntries(leads.map(l => [l.id, l]));
+        const statusBadge = (s) => {
+          if (s === 'sent') return `<span style="background:rgba(96,165,250,0.18);color:#93c5fd;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:0.5px">📤 SENT</span>`;
+          if (s === 'replied') return `<span style="background:rgba(74,222,128,0.18);color:#86efac;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:0.5px">📥 REPLIED</span>`;
+          if (s === 'failed') return `<span style="background:rgba(239,68,68,0.18);color:#fca5a5;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:0.5px">⚠ FAILED</span>`;
+          return `<span class="muted">${s}</span>`;
+        };
+        html += `<div class="overlay" onclick="closeMsgLog()">
+      <div class="modal" onclick="event.stopPropagation()" style="max-width:1000px;max-height:85vh;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+          <h2 style="margin:0">Message log <span class="muted" style="font-size:13px;font-weight:400">${rows ? `(${rows.length} most recent)` : ''}</span></h2>
+          <button class="btn btn-outline" onclick="closeMsgLog()" style="padding:6px 14px;font-size:12px">Close</button>
+        </div>
+        ${rows === null
+          ? `<div class="muted" style="text-align:center;padding:40px 0">Loading…</div>`
+          : !rows.length
+            ? `<div class="muted" style="text-align:center;padding:40px 0">No messages logged yet</div>`
+            : `<div class="toolbar" style="margin-bottom:10px">
+                <select onchange="state.msgLogFilter=this.value;render()">
+                  <option value="all" ${filt === 'all' ? 'selected' : ''}>All (${counts.all})</option>
+                  <option value="sent" ${filt === 'sent' ? 'selected' : ''}>📤 Sent (${counts.sent})</option>
+                  <option value="replied" ${filt === 'replied' ? 'selected' : ''}>📥 Replied (${counts.replied})</option>
+                  <option value="failed" ${filt === 'failed' ? 'selected' : ''}>⚠ Failed (${counts.failed})</option>
+                </select>
+                <button class="btn btn-outline" onclick="openMsgLog()">Refresh</button>
+              </div>
+              <div style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+                <table style="width:100%;border-collapse:collapse">
+                  <thead style="position:sticky;top:0;background:var(--bg);z-index:1">
+                    <tr>
+                      <th style="text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase">When</th>
+                      <th style="text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Status</th>
+                      <th style="text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Lead</th>
+                      <th style="text-align:left;padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${filtered.slice(0, 200).map(r => {
+                      const lead = leadById[r.lead_id];
+                      const name = lead ? (lead.name || lead.restaurant_name || lead.phone || '—') : '<span class="muted">unknown</span>';
+                      const body = r.message_body ? String(r.message_body).slice(0, 140) : (r.error_msg ? `<span style="color:#fca5a5">${escAttr(r.error_msg)}</span>` : '—');
+                      const click = lead ? `onclick="closeMsgLog();openLead('${lead.id}')" style="cursor:pointer"` : '';
+                      return `<tr ${click}>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);white-space:nowrap">${relTime(r.sent_at)}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border)">${statusBadge(r.status)}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600">${name}</td>
+                        <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escAttr(String(body))}</td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+              ${filtered.length > 200 ? `<div class="muted" style="text-align:center;padding:8px;font-size:11px">Showing 200 of ${filtered.length} — newest first</div>` : ''}`
+        }
+      </div>
+    </div>`;
+      }
+
       // WA TEMPLATE
       if (state.showWaTemplate) {
         html += `<div class="overlay" onclick="state.showWaTemplate=false;render()">
@@ -2478,13 +2623,14 @@
       // Skip auto-refresh when any modal is open — a full re-render mid-edit
       // disrupts focus, scroll, and pending button clicks. User can hit Refresh
       // manually inside the modal if they want fresh data.
-      if (state.selectedLead || state.showCSV || state.showAddLead || state.showWaTemplate) return;
+      if (state.selectedLead || state.showCSV || state.showAddLead || state.showWaTemplate || state.showMsgLog) return;
       // Skip if user is actively typing in a field somewhere on the page.
       const ae = document.activeElement;
       const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
       if (typing) return;
       loadAll(true); // silent — no loading spinner flicker
       if (state.view === 'inbox') loadInbox();
+      if (state.view === 'dashboard') loadMessageStats();
     }, 60000);
   </script>
 </body>
