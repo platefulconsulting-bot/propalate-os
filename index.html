@@ -4315,7 +4315,7 @@ function renderClientsHub() {
   // Add btn
   const btn = document.getElementById('clientsHubAddBtn');
   if (btn && ['admin','superadmin'].includes(currentUser?.level)) {
-    btn.innerHTML = '<button onclick="openCreateClient()" style="background:var(--gold);color:var(--black);border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer">+ Client</button>';
+    btn.innerHTML = '<button onclick="openAddClient()" style="background:var(--gold);color:var(--black);border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:800;cursor:pointer">+ Client</button>';
   }
   renderClientsHubContent();
 }
