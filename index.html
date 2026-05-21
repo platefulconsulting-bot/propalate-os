@@ -626,6 +626,7 @@
   .ops-hub-card.activity::before { background: linear-gradient(90deg, var(--green), transparent); }
   .ops-hub-card.payments::before { background: linear-gradient(90deg, var(--orange), transparent); }
   .ops-hub-card.aggregators::before { background: linear-gradient(90deg, #a855f7, transparent); }
+  .ops-hub-card.image-gen::before { background: linear-gradient(90deg, #22d3ee, transparent); }
   .ops-card-icon { font-size: 28px; margin-bottom: 8px; }
   .ops-card-title { font-size: 12px; font-weight: 700; color: var(--white); letter-spacing: 1px; text-transform: uppercase; }
   .ops-card-sub { font-size: 10px; color: var(--white3); margin-top: 3px; }
@@ -1634,10 +1635,10 @@
         <div class="ops-card-sub">Invoices & pending</div>
         <div class="ops-card-badge" id="opsPayBadge" style="display:none"></div>
       </div>
-      <div class="ops-hub-card aggregators" onclick="switchTab('aggregators')">
-        <div class="ops-card-icon">📊</div>
-        <div class="ops-card-title">Aggregators</div>
-        <div class="ops-card-sub">Swiggy · Zomato data</div>
+      <div class="ops-hub-card image-gen" onclick="openImageGenerator()">
+        <div class="ops-card-icon">🖼️</div>
+        <div class="ops-card-title">Image Generator</div>
+        <div class="ops-card-sub">Menu photos · Plateful Image Studio</div>
       </div>
       <div class="ops-hub-card" onclick="switchTab('strategy')" style="grid-column:1/-1">
         <div class="ops-card-icon">🎯</div>
@@ -7006,6 +7007,31 @@ function renderClients() {
   const qs = document.getElementById('qsClients');
   if (qs) qs.textContent = getClients().length;
 }
+
+// Open the Plateful Image Studio (Next.js app at D:\Office\Image generator).
+// Stored URL is per-browser via localStorage; default is the dev server at
+// localhost:3000. Run `npm run dev` in that folder, or deploy to Vercel and
+// call setImageGeneratorUrl('https://your-vercel-url') from the console to
+// switch over permanently.
+function openImageGenerator() {
+  let url = localStorage.getItem('pfc_image_generator_url');
+  if (!url) {
+    url = prompt(
+      'Image Generator URL:\n\n• Running locally (npm run dev in D:\\Office\\Image generator): http://localhost:3000\n• Deployed (Vercel/etc.): https://your-app.vercel.app\n\nThis is saved per browser. Run setImageGeneratorUrl(\'...\') in the console to change later.',
+      'http://localhost:3000'
+    );
+    if (!url) return;
+    url = url.trim();
+    if (!url) return;
+    localStorage.setItem('pfc_image_generator_url', url);
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+window.setImageGeneratorUrl = function (u) {
+  if (!u) { localStorage.removeItem('pfc_image_generator_url'); console.log('Cleared. Next click will re-prompt.'); return; }
+  localStorage.setItem('pfc_image_generator_url', u);
+  console.log('Saved. Next Image Generator click will open:', u);
+};
 
 function openAddClient() {
   const m = document.getElementById('addClientModal');
