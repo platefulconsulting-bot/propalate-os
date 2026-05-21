@@ -4232,8 +4232,18 @@ function setHomeType(type) {
 }// ══════════════════════════════════════════════════════════
 // MODALS
 // ══════════════════════════════════════════════════════════
-function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('open');
+  el.style.display = 'flex';
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('open');
+  el.style.display = '';
+}
 
 // Close on overlay click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -6993,7 +7003,17 @@ function renderClients() {
 }
 
 function openAddClient() {
-  document.getElementById('addClientModal').classList.add('open');
+  const m = document.getElementById('addClientModal');
+  if (!m) {
+    alert('Add Client modal element is missing from the DOM. Hard-refresh the page (Ctrl+Shift+R) to reload.');
+    console.error('addClientModal not found in DOM');
+    return;
+  }
+  m.classList.add('open');
+  // Belt-and-suspenders: also set inline style in case a stylesheet overrides
+  // .modal-overlay.open. The CSS rule expects display:flex; we force it here.
+  m.style.display = 'flex';
+  console.log('openAddClient: modal opened', m);
 }
 
 async function saveNewClient() {
