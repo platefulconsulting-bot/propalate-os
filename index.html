@@ -4198,12 +4198,20 @@ function switchTab(tab) {
 }
 
 function refreshOpsStats() {
-  document.getElementById('qsClients').textContent = getClients().length;
+  // qsClients / qsPending / qsReceived were dashboard tiles that have since
+  // been removed from the DOM; null-guard so this helper still runs cleanly
+  // when called from the Firestore clients-snapshot (was crashing the rest
+  // of the callback — aggregator dropdown / onboarding pipeline never refreshed
+  // and Add Client flow looked broken).
+  const qsC = document.getElementById('qsClients');
+  if (qsC) qsC.textContent = getClients().length;
   const pays = getPayments();
   const pending = pays.filter(p=>p.status==='pending').reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
   const received = pays.filter(p=>p.status==='paid').reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
-  document.getElementById('qsPending').textContent = '₹' + (pending/1000).toFixed(0) + 'k';
-  document.getElementById('qsReceived').textContent = '₹' + (received/1000).toFixed(0) + 'k';
+  const qsP = document.getElementById('qsPending');
+  if (qsP) qsP.textContent = '₹' + (pending/1000).toFixed(0) + 'k';
+  const qsR = document.getElementById('qsReceived');
+  if (qsR) qsR.textContent = '₹' + (received/1000).toFixed(0) + 'k';
   const pendingCount = pays.filter(p=>p.status==='pending').length;
   const navBadge = document.getElementById('opsNavBadge');
   if (navBadge) { navBadge.textContent = pendingCount; navBadge.style.display = pendingCount ? 'flex' : 'none'; }
