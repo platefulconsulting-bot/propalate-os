@@ -3280,17 +3280,18 @@ function updateHomeStats() {
 
   // Client badge on home button (overdue onboarding)
   const clientBadge = document.getElementById('homeBadgeClients');
-  if (clientBadge && typeof allClients !== 'undefined') {
-    const onboarding = allClients.filter(c => c.status === 'onboarding').length;
+  const _allClients = (typeof getClients === 'function') ? getClients() : [];
+  if (clientBadge) {
+    const onboarding = _allClients.filter(c => c.status === 'onboarding').length;
     clientBadge.textContent = onboarding;
     clientBadge.style.display = onboarding > 0 ? 'flex' : 'none';
   }
 
   // Client sub-label
   const el_cs = document.getElementById('homeBtnClientSub');
-  if (el_cs && typeof allClients !== 'undefined') {
-    const active = allClients.filter(c=>c.status==='active'||c.status==='onboarding').length;
-    el_cs.textContent = allClients.length + ' total · ' + active + ' active';
+  if (el_cs) {
+    const active = _allClients.filter(c=>c.status==='active'||c.status==='onboarding').length;
+    el_cs.textContent = _allClients.length + ' total · ' + active + ' active';
   }
 
   // Tasks sub-label
@@ -4339,7 +4340,7 @@ function renderClientsHubContent() {
 
 function renderClientsAll() {
   // Pull allClients from existing system
-  const clients = typeof allClients !== 'undefined' ? allClients : [];
+  const clients = (typeof getClients === 'function' ? getClients() : []);
   if (!clients.length) return '<div style="text-align:center;padding:40px;color:var(--white3)">No clients yet. Add your first!</div>';
   const statusColors = { active:'var(--green)', onboarding:'#fbbf24', paused:'var(--red)', inactive:'#888' };
   return clients.map(c => `
@@ -4359,7 +4360,7 @@ function renderClientsAll() {
 }
 
 function renderClientsOnboarding() {
-  const clients = typeof allClients !== 'undefined' ? allClients : [];
+  const clients = (typeof getClients === 'function' ? getClients() : []);
   const onboarding = clients.filter(function(c) { return c.status === 'onboarding' || c.status === 'new'; });
   if (!onboarding.length) {
     return '<div style="text-align:center;padding:40px;color:var(--white3);font-size:14px">No clients currently in onboarding.</div>';
@@ -4379,7 +4380,7 @@ function renderClientsOnboarding() {
 }
 
 function renderClientsComments() {
-  const clients = typeof allClients !== 'undefined' ? allClients : [];
+  const clients = (typeof getClients === 'function' ? getClients() : []);
   let html = '';
 
   // Comment input — global (not client-specific at hub level)
@@ -4629,7 +4630,7 @@ function renderRevPayments() {
 
 // ── RECURRING CONTRACTS ───────────────────────────────────
 function renderRevRecurring() {
-  const clients = typeof allClients !== 'undefined' ? allClients : [];
+  const clients = (typeof getClients === 'function' ? getClients() : []);
   let html = `<button onclick="openAddRecurring()" style="width:100%;padding:13px;background:var(--gold);color:var(--black);border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:16px">+ Add Recurring Contract</button>`;
 
   if (!_recurringContracts.length) return html + '<div style="text-align:center;padding:30px;color:var(--white3);font-size:14px">No recurring contracts yet.<br><span style="font-size:12px">Add monthly retainers to track MRR.</span></div>';
@@ -4667,7 +4668,7 @@ function renderRevRecurring() {
 
 // ── ADD RECURRING CONTRACT ────────────────────────────────
 function openAddRecurring() {
-  const clients = typeof allClients !== 'undefined' ? allClients : [];
+  const clients = (typeof getClients === 'function' ? getClients() : []);
   const html = `
     <div class="modal-overlay open" id="recurringModal">
       <div class="modal">
@@ -4786,7 +4787,7 @@ function renderScorecardContent() {
 
 function renderKAMScorecard() {
   const persons = ['Shikha','Taran'];
-  const clients = typeof allClients !== 'undefined' ? allClients : [];
+  const clients = (typeof getClients === 'function' ? getClients() : []);
   const tasks   = typeof allTasks !== 'undefined' ? allTasks : JSON.parse(localStorage.getItem('pos_tasks_cache')||'[]');
   const leads   = typeof _salesLeads !== 'undefined' ? _salesLeads : [];
 
@@ -6872,6 +6873,10 @@ function initOpsListeners() {
     renderClients();
     refreshOpsStats(); refreshStratClientSelect(); refreshAggClientSelect();
     renderOnboardingPipeline();
+    // Re-render the Clients hub if it's open (was reading from a never-defined
+    // allClients global and showing empty even when _clients had data).
+    if (typeof renderClientsHubContent === 'function') renderClientsHubContent();
+    if (typeof updateHomeStats === 'function') updateHomeStats();
     const badge = document.getElementById('clientsBadge');
     if (badge) badge.textContent = _clients.filter(c => c.status === 'onboarding').length || '';
   });
