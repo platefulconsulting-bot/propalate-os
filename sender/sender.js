@@ -475,7 +475,7 @@ async function sendOne(lead, step) {
 // ── Process a single lead end-to-end ───────────────────────────────
 async function processLead(lead, sequencesById) {
   const seq = sequencesById[lead.sequence_id];
-  if (!seq) { log('skip — no sequence found for', lead.id); return; }
+  if (!seq) { log('skip — no sequence found for', lead.id); return 'skip'; }
 
   const stepNum = (lead.sequence_step || 0) + 1;
   if (stepNum > seq.total_steps) {
@@ -487,12 +487,12 @@ async function processLead(lead, sequencesById) {
     const nextAt = new Date(Date.now() + cooldownH * 3600 * 1000).toISOString();
     await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ sequence_step: 0, next_send_at: nextAt }) });
     log(`↻ ${lead.name} finished sequence — looping back to step 1 in ${cooldownH}h`);
-    return;
+    return 'skip';
   }
 
   const steps = await sb(`sequence_steps?sequence_id=eq.${lead.sequence_id}&step_number=eq.${stepNum}&limit=1`);
   const step = steps?.[0];
-  if (!step) { log('skip — no step', stepNum, 'in seq', lead.sequence_id); return; }
+  if (!step) { log('skip — no step', stepNum, 'in seq', lead.sequence_id); return 'skip'; }
 
   let result;
   try { result = await sendOne(lead, step); }
@@ -514,8 +514,16 @@ async function processLead(lead, sequencesById) {
   }).catch(e => console.error('send_log insert failed:', e.message));
 
   if (result.status !== 'sent') {
-    log(`✗ ${lead.name}: ${result.error}`);
-    return;
+    const who = lead.name || lead.phone || lead.id;
+    log(`✗ ${who}: ${result.error}`);
+    // Auto-pause permanently-bad leads so we don't keep wasting cycles on them.
+    // The user can fix the phone/name in the dashboard and resume manually.
+    const permanent = /No phone|Number not on WhatsApp/.test(result.error || '');
+    if (permanent) {
+      try { await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ paused: true }) }); } catch (_) {}
+      return 'fail_permanent';
+    }
+    return 'fail_transient';
   }
 
   // Compute next_send_at from the next step's delay_hours.
@@ -538,13 +546,14 @@ async function processLead(lead, sequencesById) {
   } catch (e) {
     console.error(`✗ FAILED TO ADVANCE lead ${lead.id} (${lead.name}) — pausing it to prevent re-send. Error:`, e.message);
     try { await sb(`leads?id=eq.${lead.id}`, { method: 'PATCH', body: JSON.stringify({ paused: true }) }); } catch (_) {}
-    return;
+    return 'fail_permanent';
   }
 
   dailyCount += 1;
   writeCap(dailyCount);
 
   log(`✓ ${lead.name} step ${stepNum}/${seq.total_steps} (${dailyCount}/${DAILY_CAP} today)`);
+  return 'sent';
 }
 
 // ── Poll loop ──────────────────────────────────────────────────────
@@ -571,8 +580,12 @@ async function pollLoop() {
       for (const lead of batch) {
         if (!ready) break;
         if (dailyCount >= DAILY_CAP) { log('daily cap reached mid-batch'); break; }
-        await processLead(lead, sequencesById);
-        await sleep(RATE_LIMIT_MS);
+        const outcome = await processLead(lead, sequencesById);
+        // Rate-limit applies to real sends, not failures. Permanent failures
+        // are already paused so they won't reappear. Transient failures pause
+        // briefly to avoid hammering. Skips (no sequence/step) move on instantly.
+        if (outcome === 'sent') await sleep(RATE_LIMIT_MS);
+        else if (outcome === 'fail_transient') await sleep(30000);
       }
     }
   } catch (e) {
