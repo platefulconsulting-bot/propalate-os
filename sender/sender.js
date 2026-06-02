@@ -14,7 +14,7 @@ const path = require('path');
 const SB_URL = required('SB_URL');
 const SB_KEY = required('SB_KEY');
 const POLL_SEC = num('POLL_SEC', 60);
-const RATE_LIMIT_MS = Math.max(num('RATE_LIMIT_MS', 300000), 60000); // default 5 min, hard floor 1 min
+const RATE_LIMIT_MS = Math.max(num('RATE_LIMIT_MS', 600000), 60000); // default 10 min, hard floor 1 min
 const DAILY_CAP = num('DAILY_CAP', 50);
 const DRY_RUN = process.env.DRY_RUN === '1';
 
