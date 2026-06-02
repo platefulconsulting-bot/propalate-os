@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Plus Jakarta Sans',sans-serif;}
+  .canvas{width:1080px;background:#0d0b14;color:#fff;padding:56px 56px 46px;position:relative;overflow:hidden;}
+  .glow1{position:absolute;top:-180px;right:-160px;width:520px;height:520px;background:radial-gradient(circle,#ff2d6f55,transparent 70%);filter:blur(20px);}
+  .glow2{position:absolute;bottom:120px;left:-200px;width:520px;height:520px;background:radial-gradient(circle,#7b2dff44,transparent 70%);filter:blur(20px);}
+
+  .header{position:relative;z-index:2;display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid #ffffff1f;padding-bottom:26px;}
+  .brand .eyebrow{font-size:15px;letter-spacing:4px;text-transform:uppercase;color:#ff7aa8;font-weight:600;}
+  .brand h1{font-family:'Sora';font-size:62px;font-weight:800;line-height:1;margin-top:6px;background:linear-gradient(92deg,#fff,#ffb3cd);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+  .period{text-align:right;}
+  .period .tag{display:inline-block;background:#ff2d6f;color:#fff;font-weight:700;font-size:15px;padding:8px 16px;border-radius:30px;letter-spacing:1px;}
+  .period .sub{font-size:14px;color:#b9b3c9;margin-top:10px;}
+
+  .section-label{position:relative;z-index:2;display:flex;align-items:center;gap:14px;margin:38px 0 20px;}
+  .section-label span{font-family:'Sora';font-size:24px;font-weight:700;white-space:nowrap;}
+  .section-label .pill{font-size:13px;font-weight:600;color:#0d0b14;background:#2de2a0;padding:4px 12px;border-radius:20px;}
+  .section-label .pillb{background:#ffd23f;}
+  .section-label .line{flex:1;height:1px;background:#ffffff1f;}
+
+  .kpis{position:relative;z-index:2;display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .kpi{background:linear-gradient(160deg,#1c1726,#15111d);border:1px solid #ffffff14;border-radius:20px;padding:24px;}
+  .kpi .k{font-size:14px;color:#a99fc0;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;}
+  .kpi .v{font-family:'Sora';font-size:46px;font-weight:800;margin-top:8px;}
+  .kpi .v small{font-size:22px;font-weight:700;color:#cfc7df;}
+  .kpi.accent .v{color:#ff7aa8;} .kpi.net .v{color:#2de2a0;} .kpi.spend .v{color:#ffd23f;}
+
+  .breakup{position:relative;z-index:2;display:flex;gap:18px;margin-top:18px;}
+  .bcard{flex:1;background:#15111d;border:1px solid #ffffff14;border-radius:18px;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;}
+  .bcard .l{display:flex;align-items:center;gap:12px;font-size:17px;font-weight:600;color:#cfc7df;}
+  .bcard .dot{width:12px;height:12px;border-radius:4px;}
+  .bcard.c1 .dot{background:#ff2d6f;} .bcard.c2 .dot{background:#7b2dff;}
+  .bcard .val{font-family:'Sora';font-size:26px;font-weight:800;}
+
+  .plan{position:relative;z-index:2;background:linear-gradient(160deg,#1a1426,#140f1c);border:1px solid #ffffff1f;border-radius:24px;padding:28px;}
+  .plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:26px;}
+  .plan h3{font-size:14px;text-transform:uppercase;letter-spacing:2px;color:#ffd23f;font-weight:700;margin-bottom:14px;}
+  .pline{display:flex;justify-content:space-between;font-size:17px;padding:10px 0;border-bottom:1px dashed #ffffff14;}
+  .pline:last-child{border-bottom:none;}
+  .pline .lbl{color:#cfc7df;} .pline .val{font-weight:700;}
+  .pline.total{margin-top:6px;border-top:1px solid #ffffff2e;border-bottom:none;padding-top:14px;font-size:19px;}
+  .pline.total .val{color:#ffd23f;}
+
+  .rightcol{display:flex;flex-direction:column;gap:16px;}
+  .covers{background:#0d0b14;border:1px solid #ffffff1f;border-radius:18px;padding:22px;display:flex;align-items:center;gap:18px;}
+  .covers .clbl{font-size:13px;color:#a99fc0;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;}
+  .covers .from{font-family:'Sora';font-size:34px;font-weight:800;color:#8a8299;}
+  .covers .arrow{font-size:26px;color:#ff7aa8;}
+  .covers .to{font-family:'Sora';font-size:52px;font-weight:800;color:#fff;}
+  .calc{background:#0d0b14;border:1px solid #ffffff1f;border-radius:18px;padding:20px 22px;display:flex;align-items:center;justify-content:space-between;}
+  .calc .lbl{font-size:13px;color:#a99fc0;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;}
+  .calc .ev{font-family:'Sora';font-size:26px;font-weight:800;color:#2de2a0;}
+  .calc .eq{font-size:14px;color:#cfc7df;margin-top:4px;}
+  .roi{background:#0d0b14;border:1px solid #ffffff1f;border-radius:18px;padding:20px 22px;display:flex;align-items:center;justify-content:space-between;}
+  .roi .lbl{font-size:13px;color:#a99fc0;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;}
+  .roi .ev{font-family:'Sora';font-size:30px;font-weight:800;color:#ffd23f;}
+
+  .footer{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:center;margin-top:34px;padding-top:20px;border-top:1px solid #ffffff1f;color:#8a8299;font-size:13px;}
+  .footer .d{color:#ff2d6f;}
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="glow1"></div>
+  <div class="glow2"></div>
+
+  <div class="header">
+    <div class="brand">
+      <div class="eyebrow">Performance Consolidation</div>
+      <h1>FOULPLAY</h1>
+    </div>
+    <div class="period">
+      <div class="tag">MAY 2026 REVIEW</div>
+      <div class="sub">+ June 2026 Growth Plan</div>
+    </div>
+  </div>
+
+  <div class="section-label">
+    <span>May Performance</span>
+    <div class="pill">DELIVERED</div>
+    <div class="line"></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi accent"><div class="k">Gross Sales</div><div class="v">₹1.96<small>L</small></div></div>
+    <div class="kpi net"><div class="k">Net Sales</div><div class="v">₹1.34<small>L</small></div></div>
+    <div class="kpi spend"><div class="k">Total Ad Spend</div><div class="v">₹50<small>K</small></div></div>
+  </div>
+
+  <div class="breakup">
+    <div class="bcard c1"><div class="l"><span class="dot"></span>CPC Ads</div><div class="val">₹35K</div></div>
+    <div class="bcard c2"><div class="l"><span class="dot"></span>Banner Display</div><div class="val">₹15K</div></div>
+  </div>
+
+  <div class="section-label">
+    <span>June Growth Plan</span>
+    <div class="pill pillb">TARGET</div>
+    <div class="line"></div>
+  </div>
+
+  <div class="plan">
+    <div class="plan-grid">
+      <div>
+        <h3>Planned Ad Investment</h3>
+        <div class="pline"><span class="lbl">CPC Ads</span><span class="val">₹35K</span></div>
+        <div class="pline"><span class="lbl">Banner Display</span><span class="val">₹15K</span></div>
+        <div class="pline"><span class="lbl">CPV Ads</span><span class="val">₹20K</span></div>
+        <div class="pline"><span class="lbl">Spotlight</span><span class="val">₹30K</span></div>
+        <div class="pline total"><span class="lbl">Total Ad Budget</span><span class="val">₹1.00L</span></div>
+      </div>
+      <div class="rightcol">
+        <div class="covers">
+          <div><div class="clbl">Daily Covers</div></div>
+          <div class="from">35</div>
+          <div class="arrow">➜</div>
+          <div class="to">60</div>
+        </div>
+        <div class="calc">
+          <div><div class="lbl">Gross Target</div><div class="eq">40 covers × ₹4,500</div></div>
+          <div class="ev">₹1.80L</div>
+        </div>
+        <div class="roi">
+          <div class="lbl">Target ROI</div>
+          <div class="ev">40%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div><span class="d">●</span> Foulplay &nbsp;·&nbsp; Monthly Consolidation</div>
+    <div>Figures approximate &nbsp;·&nbsp; Prepared June 2026</div>
+  </div>
+</div>
+</body>
+</html>
