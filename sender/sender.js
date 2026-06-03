@@ -85,9 +85,25 @@ client.on('qr', qr => {
   qrcode.generate(qr, { small: true });
 });
 client.on('authenticated', () => log('Authenticated. Session cached for next run.'));
-client.on('ready', () => { ready = true; currentQR = null; log('WhatsApp client ready. Polling every', POLL_SEC, 'seconds. Listening for inbound replies.'); pollLoop(); });
+client.on('ready', () => {
+  ready = true; currentQR = null;
+  if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
+  log('WhatsApp client ready. Polling every', POLL_SEC, 'seconds. Listening for inbound replies.');
+  pollLoop();
+});
 client.on('disconnected', r => { console.error('Disconnected:', r); process.exit(1); });
 client.on('auth_failure', m => { console.error('Auth failure:', m); process.exit(1); });
+
+// Init watchdog — if we don't reach 'ready' within 3 minutes, exit so Railway
+// restarts the container cleanly. Without this, a silent Chromium hang leaves
+// the worker in "Initializing" forever and Railway never notices anything wrong.
+let initWatchdog = setTimeout(() => {
+  if (!ready) {
+    console.error('Init watchdog: not ready after 180s — exiting so Railway restarts the container.');
+    console.error('If this repeats: wipe the wa-session volume in Railway and redeploy to re-scan QR.');
+    process.exit(1);
+  }
+}, 180000);
 
 // ── HTTP status / QR server ────────────────────────────────────────
 // Lets a hosted deployment (Railway, etc.) display the QR for scanning
