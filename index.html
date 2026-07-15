@@ -1549,7 +1549,7 @@
           <div class="hmb-bg-icon" style="color:#60a5fa">👥</div>
           <div class="hmb-icon-circle hmb-icon-circle--blue">👥</div>
           <div class="hmb-title" style="color:#60a5fa">HR</div>
-          <div class="hmb-sub">Staff · Scorecard</div>
+          <div class="hmb-sub">Staff · Holidays · Leaves</div>
           <div class="hmb-arrow" style="color:#60a5fa">›</div>
         </div>
 
@@ -1559,14 +1559,6 @@
           <div class="hmb-title">OPS</div>
           <div class="hmb-sub">Internal tools</div>
           <div class="hmb-arrow">›</div>
-        </div>
-
-        <div class="home-module-btn home-module-btn--blue" onclick="switchTab('holidays')">
-          <div class="hmb-bg-icon" style="color:#60a5fa">🏖️</div>
-          <div class="hmb-icon-circle hmb-icon-circle--blue">🏖️</div>
-          <div class="hmb-title" style="color:#60a5fa">HOLIDAYS</div>
-          <div class="hmb-sub">Calendar · Leaves</div>
-          <div class="hmb-arrow" style="color:#60a5fa">›</div>
         </div>
 
       </div>
@@ -3353,7 +3345,8 @@ function launchApp() {
   if (isSalesAssociate) {
     document.querySelectorAll('.home-module-btn').forEach(function(btn) {
       var oc = btn.getAttribute('onclick') || '';
-      if (oc.indexOf("'tasks'") !== -1 || oc.indexOf("'sales'") !== -1 || oc.indexOf("'holidays'") !== -1) return;
+      // 'hr' stays live: it is the only route to the Holidays calendar.
+      if (oc.indexOf("'tasks'") !== -1 || oc.indexOf("'sales'") !== -1 || oc.indexOf("'hr'") !== -1) return;
       btn.style.opacity = '0.35';
       btn.style.pointerEvents = 'none';
       btn.style.filter = 'grayscale(1)';
@@ -4268,7 +4261,9 @@ document.addEventListener('click', e => {
 // ══════════════════════════════════════════════════════════
 function switchTab(tab) {
   if (currentUser && currentUser.role && (currentUser.role.toLowerCase().indexOf('sales') !== -1 || currentUser.role.toLowerCase().indexOf('senior associate') !== -1)) {
-    var _sa = ['home','tasks','sales','sales-detail','notifications','team','activity','holidays'];
+    // 'hr' is allowed only so the Holidays card is reachable — the founder gate
+    // still locks every HR content panel for them.
+    var _sa = ['home','tasks','sales','sales-detail','notifications','team','activity','hr','holidays'];
     if (_sa.indexOf(tab) === -1) { if(window.showToast)showToast('Access restricted','error'); return; }
   }
   window.scrollTo(0, 0);
