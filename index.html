@@ -2200,8 +2200,11 @@
         <div class="modal-close" onclick="closeModal('holHolidayModal')">✕</div>
       </div>
       <div class="form-group">
-        <label class="form-label">Date</label>
-        <input class="form-input" type="date" id="holHolDate">
+        <label class="form-label">Date <span style="color:var(--white3);font-weight:400;text-transform:none;letter-spacing:0">— repeats every year</span></label>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:8px">
+          <select class="form-input" id="holHolMonth" onchange="refreshHolDayOptions()"></select>
+          <select class="form-input" id="holHolDay"></select>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Holiday Name</label>
@@ -5598,12 +5601,41 @@ let _holDate = new Date();
 let _holSelDay = null;
 let _holLeaveType = 'monthly';
 
-// Seed of certain fixed-date national holidays; founders edit/extend the list.
+// Closed holidays recur every year, so they are stored as MM-DD (no year).
 const HOL_DEFAULTS = [
-  { id:'hol_republic_2026',     date:'2026-01-26', name:'Republic Day' },
-  { id:'hol_independence_2026', date:'2026-08-15', name:'Independence Day' },
-  { id:'hol_gandhi_2026',       date:'2026-10-02', name:'Gandhi Jayanti' },
+  { id:'hol_new_year',      date:'01-01', name:"New Year's Day" },
+  { id:'hol_pongal',        date:'01-14', name:'Pongal / Makar Sankranti' },
+  { id:'hol_republic',      date:'01-26', name:'Republic Day' },
+  { id:'hol_shivaratri',    date:'02-15', name:'Maha Shivaratri' },
+  { id:'hol_holi',          date:'03-04', name:'Holi' },
+  { id:'hol_eid_ul_fitr',   date:'03-20', name:'Eid-ul-Fitr' },
+  { id:'hol_good_friday',   date:'04-03', name:'Good Friday' },
+  { id:'hol_vaisakhi',      date:'04-14', name:'Vaisakhi / Mesadi' },
+  { id:'hol_independence',  date:'08-15', name:'Independence Day' },
+  { id:'hol_raksha_bandhan',date:'08-28', name:'Raksha Bandhan' },
+  { id:'hol_janmashtami',   date:'09-04', name:'Janmashtami' },
+  { id:'hol_gandhi',        date:'10-02', name:'Gandhi Jayanti' },
+  { id:'hol_dussehra',      date:'10-20', name:'Dussehra' },
+  { id:'hol_diwali',        date:'11-08', name:'Diwali' },
+  { id:'hol_bhai_dooj',     date:'11-11', name:'Bhai Dooj' },
+  { id:'hol_chhath_puja',   date:'11-15', name:'Chhath Puja' },
+  { id:'hol_guru_nanak',    date:'11-24', name:'Guru Nanak Jayanti' },
+  { id:'hol_christmas',     date:'12-25', name:'Christmas Eve' },
 ];
+// Docs seeded by the first build stored full YYYY-MM-DD dates and are superseded.
+const LEGACY_HOL_IDS = ['hol_republic_2026','hol_independence_2026','hol_gandhi_2026'];
+
+const HOL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const HOL_MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function _holMaxDay(mm) { return [31,29,31,30,31,30,31,31,30,31,30,31][parseInt(mm,10)-1] || 31; }
+// 'YYYY-MM-DD' | 'MM-DD' -> 'MM-DD'
+function _normMD(v) { v = String(v || ''); return v.length > 5 ? v.slice(5) : v; }
+// 'MM-DD' -> '26 Jan'
+function _fmtMD(md) {
+  const [mm, dd] = String(md || '').split('-');
+  return `${parseInt(dd,10)} ${HOL_MONTHS_SHORT[parseInt(mm,10)-1] || ''}`;
+}
+function _holidayOn(ymd) { const md = _normMD(ymd); return _holidays.find(h => _normMD(h.date) === md); }
 
 function _holIsFounder() { return ['deepak','saurav','white'].includes(currentUser?.name?.toLowerCase()); }
 function _ymd(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -5618,18 +5650,25 @@ function myMonthlyLeaveCount(monthKey) {
 function initHolidaysModule() {
   const sh = localStorage.getItem(HOL_KEY);
   _holidays = sh ? JSON.parse(sh) : HOL_DEFAULTS.map(h => ({...h}));
-  if (!sh) localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
+  // Drop first-build seeds and normalise any legacy YYYY-MM-DD dates to MM-DD.
+  _holidays = _holidays.filter(h => !LEGACY_HOL_IDS.includes(h.id)).map(h => ({ ...h, date: _normMD(h.date) }));
+  if (!_holidays.length) _holidays = HOL_DEFAULTS.map(h => ({...h}));
+  localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
   const sl = localStorage.getItem(LEAVE_KEY);
   _leaves = sl ? JSON.parse(sl) : [];
   if (window._dbReady && window._fb) {
     const { collection, onSnapshot } = window._fb;
     onSnapshot(collection(window._db, 'hr_holidays'), snap => {
-      if (!snap.docs.length) { HOL_DEFAULTS.forEach(h => fsSet('hr_holidays', h.id, h).catch(()=>{})); }
-      else {
-        _holidays = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-        localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
-        if (_holScreenActive()) renderHolidays();
+      const docs = snap.docs.map(d => ({ ...d.data(), id: d.id })).filter(h => !LEGACY_HOL_IDS.includes(h.id));
+      if (!docs.length) {
+        // Empty, or only first-build seeds: clear those and seed the recurring list.
+        LEGACY_HOL_IDS.forEach(id => fsDelete('hr_holidays', id).catch(()=>{}));
+        HOL_DEFAULTS.forEach(h => fsSet('hr_holidays', h.id, h).catch(()=>{}));
+        return; // the write re-fires this snapshot
       }
+      _holidays = docs.map(h => ({ ...h, date: _normMD(h.date) }));
+      localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
+      if (_holScreenActive()) renderHolidays();
     });
     onSnapshot(collection(window._db, 'hr_leaves'), snap => {
       _leaves = snap.docs.map(d => ({ ...d.data(), id: d.id }));
@@ -5659,7 +5698,7 @@ function renderHolidays() {
   for (let i = 0; i < firstDay; i++) html += '<div></div>';
   for (let d = 1; d <= daysInMonth; d++) {
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const hol = _holidays.find(h => h.date === ds);
+    const hol = _holidayOn(ds);
     const myLv = _leaves.find(l => l.ownerId === currentUser?.id && l.date === ds && l.status !== 'rejected');
     const dow = new Date(year, month, d).getDay();
     let cls = 'cal-day', tag = '';
@@ -5710,7 +5749,7 @@ function renderHolDayPanel() {
   const ds = _holSelDay;
   const d = new Date(ds + 'T00:00:00');
   const label = d.toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
-  const hol = _holidays.find(h => h.date === ds);
+  const hol = _holidayOn(ds);
   const myLv = _leaves.find(l => l.ownerId === currentUser?.id && l.date === ds && l.status !== 'rejected');
   let body = '';
   if (hol) {
@@ -5778,13 +5817,12 @@ function renderHolFounderZone() {
   }).join('') : '<div style="font-size:12px;color:var(--white3);padding:6px 2px 12px">No pending requests.</div>';
 
   // Manage closed holidays
-  const hols = [..._holidays].sort((a,b) => a.date.localeCompare(b.date));
+  const hols = [..._holidays].sort((a,b) => _normMD(a.date).localeCompare(_normMD(b.date)));
   const holsHtml = hols.map(h => {
-    const dt = new Date(h.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
     return `<div class="hol-row">
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;color:var(--white)">${h.name}</div>
-        <div style="font-size:11px;color:var(--white3)">${dt}</div>
+        <div style="font-size:11px;color:var(--white3)">${_fmtMD(h.date)} · every year</div>
       </div>
       <div onclick="deleteHoliday('${h.id}')" style="color:var(--red);font-size:16px;cursor:pointer;padding:2px 4px">✕</div>
     </div>`;
@@ -5842,7 +5880,7 @@ function updateHolLeaveHint() {
 async function submitHolLeave() {
   const date = document.getElementById('holLeaveDate')?.value;
   if (!date) { showToast('Pick a date', 'error'); return; }
-  if (_holidays.some(h => h.date === date)) { showToast('That day is already a company holiday', 'error'); return; }
+  if (_holidayOn(date)) { showToast('That day is already a company holiday', 'error'); return; }
   if (_leaves.some(l => l.ownerId === currentUser?.id && l.date === date && l.status !== 'rejected')) {
     showToast('You already have a leave/request on this date', 'error'); return;
   }
@@ -5891,18 +5929,37 @@ async function approveLeave(id, ok) {
 // ── Manage closed holidays (founders) ─────────────────────
 function openHolidayModal(presetDate) {
   if (!_holIsFounder()) { showToast('Founders only', 'error'); return; }
-  const di = document.getElementById('holHolDate');
-  if (di) di.value = presetDate || _holSelDay || '';
+  const seed = _normMD(presetDate || _holSelDay || _ymd(new Date()));
+  const ms = document.getElementById('holHolMonth');
+  if (ms) {
+    ms.innerHTML = HOL_MONTHS.map((m, i) => `<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('');
+    ms.value = seed.split('-')[0];
+  }
+  refreshHolDayOptions(seed.split('-')[1]);
   const ni = document.getElementById('holHolName');
   if (ni) ni.value = '';
   openModal('holHolidayModal');
 }
+function refreshHolDayOptions(preselectDD) {
+  const ms = document.getElementById('holHolMonth');
+  const ds = document.getElementById('holHolDay');
+  if (!ds) return;
+  const prev = preselectDD || ds.value;
+  const max = _holMaxDay(ms?.value || '01');
+  ds.innerHTML = Array.from({length: max}, (_, i) => {
+    const dd = String(i+1).padStart(2,'0');
+    return `<option value="${dd}">${i+1}</option>`;
+  }).join('');
+  ds.value = (prev && parseInt(prev,10) <= max) ? String(parseInt(prev,10)).padStart(2,'0') : '01';
+}
 async function submitHoliday() {
   if (!_holIsFounder()) { showToast('Founders only', 'error'); return; }
-  const date = document.getElementById('holHolDate')?.value;
+  const mm = document.getElementById('holHolMonth')?.value;
+  const dd = document.getElementById('holHolDay')?.value;
   const name = (document.getElementById('holHolName')?.value || '').trim();
-  if (!date || !name) { showToast('Date and name required', 'error'); return; }
-  if (_holidays.some(h => h.date === date)) { showToast('A holiday already exists on that date', 'error'); return; }
+  if (!mm || !dd || !name) { showToast('Date and name required', 'error'); return; }
+  const date = `${mm}-${dd}`;
+  if (_holidayOn(date)) { showToast('A holiday already exists on that date', 'error'); return; }
   const id = 'hol_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
   const rec = { id, date, name, createdBy: currentUser?.name || '' };
   _holidays.push(rec);
