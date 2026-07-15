@@ -448,6 +448,18 @@
   .cal-day.today { background: var(--gold-bg); border: 1px solid var(--gold); color: var(--gold); font-weight: 700; }
   .cal-day.has-tasks::after { content:''; position:absolute; bottom:3px; width:4px; height:4px; background:var(--gold); border-radius:50%; }
   .cal-day.selected { background: var(--gold); color: var(--black); font-weight: 700; }
+  /* Holiday / leave calendar day states */
+  .cal-day.hol { background: rgba(224,82,82,0.15); border: 1px solid rgba(224,82,82,0.4); color: var(--red); font-weight: 700; }
+  .cal-day.lv-appr { background: rgba(82,136,224,0.18); border: 1px solid rgba(82,136,224,0.45); color: var(--blue); font-weight: 700; }
+  .cal-day.lv-pend { background: rgba(224,144,82,0.15); border: 1px solid rgba(224,144,82,0.4); color: var(--orange); font-weight: 700; }
+  .cal-day.weekoff { color: var(--white3); }
+  .cal-day .cal-day-tag { font-size: 6px; text-transform: uppercase; letter-spacing: .3px; line-height: 1; margin-top: 2px; opacity: .9; }
+  .hol-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 2px 0 16px; }
+  .hol-legend-item { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--white3); }
+  .hol-legend-dot { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
+  .hol-type-opt { padding: 12px 10px; border: 1px solid var(--black4); border-radius: var(--radius-sm); text-align: center; cursor: pointer; font-size: 12px; color: var(--white2); background: var(--black3); line-height: 1.35; }
+  .hol-type-opt.sel { border-color: var(--gold); background: var(--gold-bg); color: var(--gold); font-weight: 700; }
+  .hol-row { display: flex; align-items: center; gap: 10px; background: var(--black3); border: 1px solid var(--black4); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 8px; }
   .cal-day-tasks { }
   .cal-task-item { background: var(--black3); border-left: 3px solid var(--gold); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
   .cal-task-title { font-size: 13px; font-weight: 600; color: var(--white); }
@@ -1549,6 +1561,14 @@
           <div class="hmb-arrow">›</div>
         </div>
 
+        <div class="home-module-btn home-module-btn--blue" onclick="switchTab('holidays')">
+          <div class="hmb-bg-icon" style="color:#60a5fa">🏖️</div>
+          <div class="hmb-icon-circle hmb-icon-circle--blue">🏖️</div>
+          <div class="hmb-title" style="color:#60a5fa">HOLIDAYS</div>
+          <div class="hmb-sub">Calendar · Leaves</div>
+          <div class="hmb-arrow" style="color:#60a5fa">›</div>
+        </div>
+
       </div>
     </div>
 
@@ -2062,6 +2082,16 @@
       <div class="filter-pill" onclick="setHRMainTab('scorecard')" id="hrtab-scorecard">Scorecard</div>
     </div>
 
+    <!-- Holidays & Leave Calendar entry (open to all employees) -->
+    <div onclick="switchTab('holidays')" style="display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,var(--black3),rgba(82,136,224,.08));border:1px solid rgba(82,136,224,.25);border-radius:var(--radius);padding:13px 14px;margin-bottom:18px;cursor:pointer">
+      <div style="font-size:24px">🏖️</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:var(--white)">Holidays &amp; Leave Calendar</div>
+        <div style="font-size:11px;color:var(--white3)">Closed holidays · 2 leaves/mo · special leave</div>
+      </div>
+      <div style="color:#60a5fa;font-size:18px">›</div>
+    </div>
+
     <div id="hrMainContent">
     <!-- Stats bar -->
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px" id="hrStatsBar">
@@ -2095,6 +2125,90 @@
       <div style="font-size:18px;font-weight:700;color:var(--white)" id="hrDetailName">Employee</div>
     </div>
     <div id="hrDetailContent"></div>
+  </div>
+
+  <!-- HOLIDAYS & LEAVE CALENDAR (accessible to all employees) -->
+  <div id="screen-holidays" class="screen" style="padding:16px 16px 100px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <div class="back-btn" onclick="switchTab('home')">‹</div>
+      <div>
+        <div style="font-size:20px;font-weight:800;color:var(--white)">Holidays &amp; Leaves</div>
+        <div style="font-size:12px;color:var(--white3)">Company holidays · Your leave balance</div>
+      </div>
+    </div>
+
+    <!-- Leave balance -->
+    <div id="holBalance" style="margin-bottom:16px"></div>
+
+    <!-- Calendar -->
+    <div class="cal-header">
+      <div class="cal-nav" onclick="holNav(-1)">‹</div>
+      <div class="cal-month" id="holMonth"></div>
+      <div class="cal-nav" onclick="holNav(1)">›</div>
+    </div>
+    <div class="cal-grid" id="holGrid"></div>
+
+    <div class="hol-legend">
+      <div class="hol-legend-item"><span class="hol-legend-dot" style="background:rgba(224,82,82,0.55)"></span>Closed holiday</div>
+      <div class="hol-legend-item"><span class="hol-legend-dot" style="background:rgba(82,136,224,0.6)"></span>Your leave</div>
+      <div class="hol-legend-item"><span class="hol-legend-dot" style="background:rgba(224,144,82,0.6)"></span>Pending</div>
+      <div class="hol-legend-item"><span class="hol-legend-dot" style="background:var(--gold)"></span>Today</div>
+    </div>
+
+    <!-- Selected day -->
+    <div id="holDayPanel" style="margin-bottom:18px"></div>
+
+    <button class="btn-primary" style="width:100%;margin-bottom:20px" onclick="openHolLeaveModal()">+ Apply for Leave</button>
+
+    <!-- My upcoming leaves -->
+    <div class="hr-section-title">My Upcoming Leaves</div>
+    <div id="holMyLeaves" style="margin-bottom:8px"></div>
+
+    <!-- Founder zone: approvals + manage holidays -->
+    <div id="holFounderZone" style="display:none"></div>
+  </div>
+
+  <!-- APPLY / REQUEST LEAVE MODAL -->
+  <div class="modal-overlay" id="holLeaveModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Apply for Leave</div>
+        <div class="modal-close" onclick="closeModal('holLeaveModal')">✕</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" type="date" id="holLeaveDate" onchange="refreshHolTypeOptions()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Leave Type</label>
+        <div style="display:grid;gap:8px" id="holTypeRow"></div>
+      </div>
+      <div class="form-group" id="holReasonWrap">
+        <label class="form-label" id="holReasonLabel">Reason</label>
+        <textarea class="form-input" id="holLeaveReason" rows="3" placeholder="Reason for leave"></textarea>
+      </div>
+      <div id="holLeaveHint" style="font-size:11px;color:var(--white3);margin-bottom:12px"></div>
+      <button class="btn-primary" style="width:100%" onclick="submitHolLeave()">Submit</button>
+    </div>
+  </div>
+
+  <!-- ADD CLOSED HOLIDAY MODAL (founders) -->
+  <div class="modal-overlay" id="holHolidayModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Add Closed Holiday</div>
+        <div class="modal-close" onclick="closeModal('holHolidayModal')">✕</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" type="date" id="holHolDate">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Holiday Name</label>
+        <input class="form-input" id="holHolName" placeholder="e.g. Diwali">
+      </div>
+      <button class="btn-primary" style="width:100%" onclick="submitHoliday()">Add Holiday</button>
+    </div>
   </div>
 
   <!-- HR SALARY SLIP MODAL -->
@@ -3236,7 +3350,7 @@ function launchApp() {
   if (isSalesAssociate) {
     document.querySelectorAll('.home-module-btn').forEach(function(btn) {
       var oc = btn.getAttribute('onclick') || '';
-      if (oc.indexOf("'tasks'") !== -1 || oc.indexOf("'sales'") !== -1) return;
+      if (oc.indexOf("'tasks'") !== -1 || oc.indexOf("'sales'") !== -1 || oc.indexOf("'holidays'") !== -1) return;
       btn.style.opacity = '0.35';
       btn.style.pointerEvents = 'none';
       btn.style.filter = 'grayscale(1)';
@@ -4151,7 +4265,7 @@ document.addEventListener('click', e => {
 // ══════════════════════════════════════════════════════════
 function switchTab(tab) {
   if (currentUser && currentUser.role && (currentUser.role.toLowerCase().indexOf('sales') !== -1 || currentUser.role.toLowerCase().indexOf('senior associate') !== -1)) {
-    var _sa = ['home','tasks','sales','sales-detail','notifications','team','activity'];
+    var _sa = ['home','tasks','sales','sales-detail','notifications','team','activity','holidays'];
     if (_sa.indexOf(tab) === -1) { if(window.showToast)showToast('Access restricted','error'); return; }
   }
   window.scrollTo(0, 0);
@@ -4178,7 +4292,7 @@ function switchTab(tab) {
   // Nav highlight: OPS sub-tabs all highlight the OPS nav item
   const OPS_SUBS = ['clients','clients-hub','activity','payments','aggregators','strategy','onboarding','onboarding-detail','audit-log','firebase-users','menu-optimizer','menu-master','hr','hr-detail','sales','sales-detail','quote-builder','revenue','scorecard','sop','swiggy-creds'];
   // OPS sub-screens and module screens highlight Home in nav
-  const HOME_SUBS = ['ops','clients','clients-hub','hr','hr-detail','sales','sales-detail',
+  const HOME_SUBS = ['ops','clients','clients-hub','hr','hr-detail','holidays','sales','sales-detail',
     'quote-builder','revenue','scorecard','sop','activity','payments','aggregators',
     'strategy','onboarding','onboarding-detail','audit-log','firebase-users',
     'menu-optimizer','menu-master'];
@@ -5468,6 +5582,344 @@ function initHRModule() {
   }
 }
 window.addEventListener('dbready', () => initHRModule());
+
+// ══════════════════════════════════════════════════════════
+// HOLIDAYS & LEAVE CALENDAR  (open to ALL employees)
+//   • Closed holidays  — company-wide, managed by founders
+//   • Monthly leaves   — 2 per employee per month, self-service
+//   • Special leaves   — require founder approval
+// ══════════════════════════════════════════════════════════
+const HOL_KEY = 'pfc_hr_holidays';
+const LEAVE_KEY = 'pfc_hr_leaves';
+const MONTHLY_LEAVE_LIMIT = 2;
+let _holidays = [];
+let _leaves = [];
+let _holDate = new Date();
+let _holSelDay = null;
+let _holLeaveType = 'monthly';
+
+// Seed of certain fixed-date national holidays; founders edit/extend the list.
+const HOL_DEFAULTS = [
+  { id:'hol_republic_2026',     date:'2026-01-26', name:'Republic Day' },
+  { id:'hol_independence_2026', date:'2026-08-15', name:'Independence Day' },
+  { id:'hol_gandhi_2026',       date:'2026-10-02', name:'Gandhi Jayanti' },
+];
+
+function _holIsFounder() { return ['deepak','saurav','white'].includes(currentUser?.name?.toLowerCase()); }
+function _ymd(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _monthKey(dateStr) { return (dateStr||'').slice(0,7); }
+function _holScreenActive() { return document.getElementById('screen-holidays')?.classList.contains('active'); }
+// A monthly leave consumes quota as soon as it is requested — approved AND pending
+// both count, otherwise an employee could stack unlimited pending requests.
+function myMonthlyLeaveCount(monthKey) {
+  return _leaves.filter(l => l.ownerId === currentUser?.id && l.type === 'monthly' && l.status !== 'rejected' && _monthKey(l.date) === monthKey).length;
+}
+
+function initHolidaysModule() {
+  const sh = localStorage.getItem(HOL_KEY);
+  _holidays = sh ? JSON.parse(sh) : HOL_DEFAULTS.map(h => ({...h}));
+  if (!sh) localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
+  const sl = localStorage.getItem(LEAVE_KEY);
+  _leaves = sl ? JSON.parse(sl) : [];
+  if (window._dbReady && window._fb) {
+    const { collection, onSnapshot } = window._fb;
+    onSnapshot(collection(window._db, 'hr_holidays'), snap => {
+      if (!snap.docs.length) { HOL_DEFAULTS.forEach(h => fsSet('hr_holidays', h.id, h).catch(()=>{})); }
+      else {
+        _holidays = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
+        if (_holScreenActive()) renderHolidays();
+      }
+    });
+    onSnapshot(collection(window._db, 'hr_leaves'), snap => {
+      _leaves = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      localStorage.setItem(LEAVE_KEY, JSON.stringify(_leaves));
+      if (_holScreenActive()) renderHolidays();
+    });
+  }
+}
+window.addEventListener('dbready', () => initHolidaysModule());
+
+function holNav(dir) { _holDate.setMonth(_holDate.getMonth() + dir); renderHolidays(); }
+function selHolDay(dateStr) { _holSelDay = dateStr; renderHolidays(); }
+
+function renderHolidays() {
+  if (!_holSelDay) _holSelDay = _ymd(new Date());
+  const year = _holDate.getFullYear(), month = _holDate.getMonth();
+  const todayStr = _ymd(new Date());
+  const monthKey = `${year}-${String(month+1).padStart(2,'0')}`;
+
+  const monthEl = document.getElementById('holMonth');
+  if (monthEl) monthEl.textContent = _holDate.toLocaleDateString('en-IN', { month:'long', year:'numeric' });
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dh = ['S','M','T','W','T','F','S'];
+  let html = dh.map(d => `<div class="cal-day-header">${d}</div>`).join('');
+  for (let i = 0; i < firstDay; i++) html += '<div></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const hol = _holidays.find(h => h.date === ds);
+    const myLv = _leaves.find(l => l.ownerId === currentUser?.id && l.date === ds && l.status !== 'rejected');
+    const dow = new Date(year, month, d).getDay();
+    let cls = 'cal-day', tag = '';
+    if (ds === todayStr) cls += ' today';
+    if (hol) { cls += ' hol'; tag = 'Holiday'; }
+    else if (myLv && myLv.status === 'approved') { cls += ' lv-appr'; tag = 'Leave'; }
+    else if (myLv && myLv.status === 'pending') { cls += ' lv-pend'; tag = 'Pending'; }
+    else if (dow === 0) { cls += ' weekoff'; tag = 'Off'; }
+    if (ds === _holSelDay) cls += ' selected';
+    html += `<div class="${cls}" onclick="selHolDay('${ds}')">${d}${tag ? `<span class="cal-day-tag">${tag}</span>` : ''}</div>`;
+  }
+  const grid = document.getElementById('holGrid');
+  if (grid) grid.innerHTML = html;
+
+  // Balance card
+  const used = myMonthlyLeaveCount(monthKey);
+  const remaining = Math.max(0, MONTHLY_LEAVE_LIMIT - used);
+  const mineThisMonth = _leaves.filter(l => l.ownerId === currentUser?.id && _monthKey(l.date) === monthKey);
+  const approvedCount = mineThisMonth.filter(l => l.status === 'approved').length;
+  const pendingCount = mineThisMonth.filter(l => l.status === 'pending').length;
+  const bal = document.getElementById('holBalance');
+  if (bal) {
+    bal.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div style="background:var(--black3);border:1px solid var(--black4);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--blue)">${remaining}</div>
+          <div style="font-size:9px;color:var(--white3);text-transform:uppercase;letter-spacing:1px">Monthly left</div>
+        </div>
+        <div style="background:var(--black3);border:1px solid var(--black4);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--green)">${approvedCount}</div>
+          <div style="font-size:9px;color:var(--white3);text-transform:uppercase;letter-spacing:1px">Approved</div>
+        </div>
+        <div style="background:var(--black3);border:1px solid var(--black4);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--orange)">${pendingCount}</div>
+          <div style="font-size:9px;color:var(--white3);text-transform:uppercase;letter-spacing:1px">Pending</div>
+        </div>
+      </div>`;
+  }
+
+  renderHolDayPanel();
+  renderHolMyLeaves();
+  renderHolFounderZone();
+}
+
+function renderHolDayPanel() {
+  const el = document.getElementById('holDayPanel');
+  if (!el) return;
+  const ds = _holSelDay;
+  const d = new Date(ds + 'T00:00:00');
+  const label = d.toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  const hol = _holidays.find(h => h.date === ds);
+  const myLv = _leaves.find(l => l.ownerId === currentUser?.id && l.date === ds && l.status !== 'rejected');
+  let body = '';
+  if (hol) {
+    body = `<div style="color:var(--red);font-weight:600;font-size:13px">🔴 ${hol.name}</div><div style="font-size:11px;color:var(--white3);margin-top:2px">Company holiday — office closed</div>`;
+  } else if (myLv) {
+    const st = myLv.status === 'approved' ? '<span style="color:var(--blue)">✓ Approved</span>' : '<span style="color:var(--orange)">⏳ Pending approval</span>';
+    body = `<div style="font-size:13px;font-weight:600;color:var(--white)">${myLv.type === 'special' ? '⭐ Special leave' : '🗓️ Monthly leave'} — ${st}</div>${myLv.reason ? `<div style="font-size:11px;color:var(--white3);margin-top:2px">${myLv.reason}</div>` : ''}<div style="margin-top:8px"><button onclick="cancelLeave('${myLv.id}')" style="background:transparent;border:1px solid rgba(224,82,82,.4);color:var(--red);border-radius:var(--radius-sm);padding:6px 12px;font-size:11px;cursor:pointer;font-family:inherit">Cancel this leave</button></div>`;
+  } else {
+    body = `<div style="font-size:12px;color:var(--white3)">No holiday or leave on this day.</div><div style="margin-top:8px"><button onclick="openHolLeaveModal('${ds}')" style="background:var(--gold-bg);border:1px solid var(--gold);color:var(--gold);border-radius:var(--radius-sm);padding:6px 12px;font-size:11px;cursor:pointer;font-family:inherit">Apply leave on this day</button></div>`;
+  }
+  el.innerHTML = `
+    <div style="background:var(--black3);border:1px solid var(--black4);border-radius:var(--radius);padding:12px 14px">
+      <div style="font-size:11px;color:var(--white3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${label}</div>
+      ${body}
+    </div>`;
+}
+
+function renderHolMyLeaves() {
+  const el = document.getElementById('holMyLeaves');
+  if (!el) return;
+  const todayStr = _ymd(new Date());
+  const mine = _leaves
+    .filter(l => l.ownerId === currentUser?.id && l.date >= todayStr && l.status !== 'rejected')
+    .sort((a,b) => a.date.localeCompare(b.date));
+  if (!mine.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--white3);padding:6px 2px 14px">No upcoming leaves.</div>';
+    return;
+  }
+  el.innerHTML = mine.map(l => {
+    const dt = new Date(l.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short' });
+    const badge = l.status === 'approved'
+      ? '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(82,136,224,.15);color:var(--blue);border:1px solid rgba(82,136,224,.3)">Approved</span>'
+      : '<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(224,144,82,.15);color:var(--orange);border:1px solid rgba(224,144,82,.3)">Pending</span>';
+    return `<div class="hol-row">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--white)">${dt} · ${l.type === 'special' ? 'Special' : 'Monthly'}</div>
+        ${l.reason ? `<div style="font-size:11px;color:var(--white3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${l.reason}</div>` : ''}
+      </div>
+      ${badge}
+      <div onclick="cancelLeave('${l.id}')" style="color:var(--red);font-size:16px;cursor:pointer;padding:2px 4px">✕</div>
+    </div>`;
+  }).join('');
+}
+
+function renderHolFounderZone() {
+  const el = document.getElementById('holFounderZone');
+  if (!el) return;
+  if (!_holIsFounder()) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = '';
+
+  // Pending special-leave approvals (all employees)
+  const pending = _leaves.filter(l => l.status === 'pending').sort((a,b) => a.date.localeCompare(b.date));
+  const pendingHtml = pending.length ? pending.map(l => {
+    const dt = new Date(l.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short' });
+    return `<div class="hol-row" style="flex-wrap:wrap">
+      <div style="flex:1;min-width:120px">
+        <div style="font-size:13px;font-weight:600;color:var(--white)">${l.ownerName || 'Employee'} · ${dt}</div>
+        <div style="font-size:11px;color:var(--white3)">${l.type === 'special' ? '⭐ Special' : '🗓️ Monthly'} — ${l.reason || 'No reason given'}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="approveLeave('${l.id}',true)" style="background:rgba(76,175,125,.15);border:1px solid rgba(76,175,125,.4);color:var(--green);border-radius:var(--radius-sm);padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Approve</button>
+        <button onclick="approveLeave('${l.id}',false)" style="background:transparent;border:1px solid rgba(224,82,82,.4);color:var(--red);border-radius:var(--radius-sm);padding:6px 12px;font-size:11px;cursor:pointer;font-family:inherit">Reject</button>
+      </div>
+    </div>`;
+  }).join('') : '<div style="font-size:12px;color:var(--white3);padding:6px 2px 12px">No pending requests.</div>';
+
+  // Manage closed holidays
+  const hols = [..._holidays].sort((a,b) => a.date.localeCompare(b.date));
+  const holsHtml = hols.map(h => {
+    const dt = new Date(h.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+    return `<div class="hol-row">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--white)">${h.name}</div>
+        <div style="font-size:11px;color:var(--white3)">${dt}</div>
+      </div>
+      <div onclick="deleteHoliday('${h.id}')" style="color:var(--red);font-size:16px;cursor:pointer;padding:2px 4px">✕</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="height:1px;background:var(--black4);margin:22px 0 18px"></div>
+    <div class="hr-section-title" style="color:var(--orange)">Pending Approvals ${pending.length ? `<span style="color:var(--orange)">(${pending.length})</span>` : ''}</div>
+    ${pendingHtml}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 8px">
+      <div class="hr-section-title" style="margin:0">Closed Holidays</div>
+      <button onclick="openHolidayModal()" style="background:var(--gold);color:var(--black);border:none;border-radius:var(--radius-sm);padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">+ ADD</button>
+    </div>
+    ${holsHtml}`;
+}
+
+// ── Apply / request leave ─────────────────────────────────
+function openHolLeaveModal(presetDate) {
+  const di = document.getElementById('holLeaveDate');
+  if (di) di.value = presetDate || _holSelDay || _ymd(new Date());
+  const ri = document.getElementById('holLeaveReason');
+  if (ri) ri.value = '';
+  refreshHolTypeOptions();
+  openModal('holLeaveModal');
+}
+
+// Leave type is decided by the quota for the selected date's month, not chosen by
+// the employee: Special is only offered once both monthly leaves are used up.
+function refreshHolTypeOptions() {
+  const di = document.getElementById('holLeaveDate');
+  const mk = _monthKey(di?.value || _ymd(new Date()));
+  const remaining = Math.max(0, MONTHLY_LEAVE_LIMIT - myMonthlyLeaveCount(mk));
+  _holLeaveType = remaining > 0 ? 'monthly' : 'special';
+  const row = document.getElementById('holTypeRow');
+  if (row) {
+    row.innerHTML = remaining > 0
+      ? `<div class="hol-type-opt sel" data-t="monthly">🗓️ Monthly Leave<br><span style="font-size:10px;opacity:.8">${remaining} of ${MONTHLY_LEAVE_LIMIT} left this month · needs founder approval</span></div>`
+      : `<div class="hol-type-opt" data-t="monthly" style="opacity:.4">🗓️ Monthly Leave<br><span style="font-size:10px">Exhausted — ${MONTHLY_LEAVE_LIMIT}/${MONTHLY_LEAVE_LIMIT} used this month</span></div>
+         <div class="hol-type-opt sel" data-t="special">⭐ Special Leave<br><span style="font-size:10px;opacity:.8">Monthly quota used up · needs founder approval</span></div>`;
+  }
+  const rl = document.getElementById('holReasonLabel');
+  if (rl) rl.textContent = _holLeaveType === 'special' ? 'Reason (required)' : 'Reason (optional)';
+  updateHolLeaveHint();
+}
+function updateHolLeaveHint() {
+  const el = document.getElementById('holLeaveHint');
+  if (!el) return;
+  const di = document.getElementById('holLeaveDate');
+  const mk = _monthKey(di?.value || _ymd(new Date()));
+  const remaining = Math.max(0, MONTHLY_LEAVE_LIMIT - myMonthlyLeaveCount(mk));
+  el.textContent = _holLeaveType === 'monthly'
+    ? `${remaining} of ${MONTHLY_LEAVE_LIMIT} monthly leaves left for ${mk}. Sent to the founders for approval.`
+    : `Monthly quota for ${mk} is used up — this will be requested as a special leave.`;
+}
+async function submitHolLeave() {
+  const date = document.getElementById('holLeaveDate')?.value;
+  if (!date) { showToast('Pick a date', 'error'); return; }
+  if (_holidays.some(h => h.date === date)) { showToast('That day is already a company holiday', 'error'); return; }
+  if (_leaves.some(l => l.ownerId === currentUser?.id && l.date === date && l.status !== 'rejected')) {
+    showToast('You already have a leave/request on this date', 'error'); return;
+  }
+  const reason = (document.getElementById('holLeaveReason')?.value || '').trim();
+  // Type is derived from the quota, never trusted from the UI: the first two
+  // monthly leaves of a month are monthly, anything beyond that is special.
+  const type = myMonthlyLeaveCount(_monthKey(date)) < MONTHLY_LEAVE_LIMIT ? 'monthly' : 'special';
+  _holLeaveType = type;
+  if (type === 'special' && !reason) { showToast('Add a reason for special leave', 'error'); return; }
+  const id = 'lv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const rec = {
+    id, ownerId: currentUser?.id || '', ownerName: currentUser?.name || '',
+    date, type, reason,
+    status: 'pending', approvedBy: '', createdAt: new Date().toISOString()
+  };
+  _leaves.push(rec);
+  localStorage.setItem(LEAVE_KEY, JSON.stringify(_leaves));
+  await fsSet('hr_leaves', id, rec);
+  closeModal('holLeaveModal');
+  _holSelDay = date;
+  showToast(type === 'monthly' ? 'Monthly leave requested — pending founder approval' : 'Special leave requested — pending founder approval', 'success');
+  renderHolidays();
+}
+async function cancelLeave(id) {
+  const l = _leaves.find(x => x.id === id);
+  if (!l) return;
+  if (l.ownerId !== currentUser?.id && !_holIsFounder()) { showToast('Not allowed', 'error'); return; }
+  _leaves = _leaves.filter(x => x.id !== id);
+  localStorage.setItem(LEAVE_KEY, JSON.stringify(_leaves));
+  await fsDelete('hr_leaves', id);
+  showToast('Leave cancelled', 'success');
+  renderHolidays();
+}
+async function approveLeave(id, ok) {
+  if (!_holIsFounder()) { showToast('Founders only', 'error'); return; }
+  const l = _leaves.find(x => x.id === id);
+  if (!l) return;
+  l.status = ok ? 'approved' : 'rejected';
+  l.approvedBy = currentUser?.name || '';
+  localStorage.setItem(LEAVE_KEY, JSON.stringify(_leaves));
+  await fsSet('hr_leaves', id, l);
+  showToast(ok ? 'Leave approved ✓' : 'Leave rejected', 'success');
+  renderHolidays();
+}
+
+// ── Manage closed holidays (founders) ─────────────────────
+function openHolidayModal(presetDate) {
+  if (!_holIsFounder()) { showToast('Founders only', 'error'); return; }
+  const di = document.getElementById('holHolDate');
+  if (di) di.value = presetDate || _holSelDay || '';
+  const ni = document.getElementById('holHolName');
+  if (ni) ni.value = '';
+  openModal('holHolidayModal');
+}
+async function submitHoliday() {
+  if (!_holIsFounder()) { showToast('Founders only', 'error'); return; }
+  const date = document.getElementById('holHolDate')?.value;
+  const name = (document.getElementById('holHolName')?.value || '').trim();
+  if (!date || !name) { showToast('Date and name required', 'error'); return; }
+  if (_holidays.some(h => h.date === date)) { showToast('A holiday already exists on that date', 'error'); return; }
+  const id = 'hol_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const rec = { id, date, name, createdBy: currentUser?.name || '' };
+  _holidays.push(rec);
+  localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
+  await fsSet('hr_holidays', id, rec);
+  closeModal('holHolidayModal');
+  showToast('Holiday added ✓', 'success');
+  renderHolidays();
+}
+async function deleteHoliday(id) {
+  if (!_holIsFounder()) { showToast('Founders only', 'error'); return; }
+  _holidays = _holidays.filter(h => h.id !== id);
+  localStorage.setItem(HOL_KEY, JSON.stringify(_holidays));
+  await fsDelete('hr_holidays', id);
+  showToast('Holiday removed', 'success');
+  renderHolidays();
+}
 
 // ── RENDER HR HUB ─────────────────────────────────────────
 var _hrMainTab = 'staff';
@@ -8814,7 +9266,7 @@ var _baseSwitchTab = switchTab;
 switchTab = function(tab) {
   // FOUNDER GATE: Non-founders can only access home, tasks, notifications, team, calendar
   const isFounder = ['deepak','saurav','white'].includes(currentUser?.name?.toLowerCase());
-  const openTabs = ['home','tasks','notifications','team','calendar'];
+  const openTabs = ['home','tasks','notifications','team','calendar','holidays'];
   if (!isFounder && !openTabs.includes(tab)) {
     _baseSwitchTab(tab); // still switch screen (so back btn etc. work)
     // Find the content container and show lock
@@ -8839,6 +9291,7 @@ switchTab = function(tab) {
   if (tab === 'firebase-users') refreshTeamUsers();
   if (tab === 'swiggy-creds') loadSwiggyCredentials();
   if (tab === 'hr') renderHRHub();
+  if (tab === 'holidays') renderHolidays();
   if (tab === 'sales') renderSalesHub();
   if (tab === 'quote-builder') renderQuoteBuilder();
   if (tab === 'clients-hub') renderClientsHub();
